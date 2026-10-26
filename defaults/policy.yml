@@ -1,0 +1,98 @@
+# Portin globaali oletuspolicy. Arvot päätetty 26.10.2026 (CTO).
+# Kuluttajarepo täydentää tätä tiedostolla .portti/policy.yml:
+#   - mappingit yhdistetään avain kerrallaan
+#   - repon lista korvaa oletuksen listan
+#   - `laajenna_<avain>` lisää oletuksen listaan
+# Tuntematon avain on latausvirhe. Kova-kategoriaa `portti_itse` ei saa korvata.
+#
+# Deny-tasojen semantiikka:
+#   kova   = ei automaattihyväksyntää, nimetty katselmoija, pinoaminen pysähtyy
+#   pehmea = ei T1-automaattia mainiin, yhteenvetoon "koskettu: <alueet>"
+
+versio: 1
+
+lukkotiedostot: &lukkotiedostot
+  - package-lock.json
+  - pnpm-lock.yaml
+  - yarn.lock
+  - uv.lock
+  - poetry.lock
+  - "requirements*.lock"
+  - "requirements*.txt"
+
+deny:
+  kova:
+    agenttiohjeet:
+      polut: ["CLAUDE.md", ".claude/**"]
+      perustelu: "Agentin ohjeet ohjaavat kaikkea myöhempää työtä."
+    maarittelyt:
+      polut: ["docs/specs/**"]
+    git_asetukset:
+      polut: [".gitignore", ".gitattributes"]
+    lukkotiedostot:
+      polut: *lukkotiedostot
+      perustelu: "Riippuvuuksien vaihto on toimitusketjupäätös."
+    ci:
+      polut: [".github/**"]
+    kontit:
+      polut: ["Dockerfile*", "docker-compose*"]
+    portti_itse:
+      polut: [".portti/**", "CODEOWNERS", ".github/workflows/portti.yml"]
+      perustelu: "Portti ei saa muuttaa omia sääntöjään automaattisesti."
+  pehmea: {}
+
+# Deny, jos PR lisää tällaisen polun (uusi tiedosto tai uudelleennimeämisen kohde).
+kielletyt_uudet_polut:
+  - "**/posti/**"
+  - "**/myyntijono/**"
+  - "**/agentit/**"
+  - "**/prompts/**"
+  - "**/*laheta*"
+  - "**/*notify*"
+
+# T0: pelkästään näitä koskettava PR on vapaa. Kova deny menee aina edelle.
+allow:
+  polut: ["docs/**", "README*", "CHANGELOG*", "LICENSE*", "fixtures/**", "*.md"]
+  paitsi: ["docs/specs/**"]
+
+# Ei lasketa substantiivisiin riveihin eikä tiedostoihin.
+ei_laskennassa:
+  polut:
+    - "docs/**"
+    - "*.md"
+    - "fixtures/**"
+    - "public/**"
+    - "**/__snapshots__/**"
+    - "*.snap"
+  paitsi: ["docs/specs/**", "CLAUDE.md", ".claude/**"]
+ei_laskennassa_lukkotiedostot: *lukkotiedostot
+
+# Testit eivät ole laskennassa, paitsi policyn `invarianttitestit`.
+# Pelkkiä testejä muuttava PR on T0 vain, jos testifunktioiden määrä ei laske.
+testit:
+  - "tests/**"
+  - "test/**"
+  - "__tests__/**"
+  - "*.test.*"
+  - "*.spec.*"
+  - "test_*.py"
+
+# Repo listaa generoidut tiedostot; käsitellään kuten ei_laskennassa.
+generoidut: []
+
+size_gate:
+  max_rivit: 300
+  max_tiedostot: 10
+
+tiers:
+  T1a: {max_rivit: 20, max_tiedostot: 3, max_alueet: 1}
+  T1b: {max_rivit: 100, max_tiedostot: 5, max_alueet: 2}
+  T1c: {max_rivit: 300, max_tiedostot: 10, max_alueet: 3}
+
+# Alue: prefiksin alla seuraava kansio; muuten polun kaksi ensimmäistä tasoa.
+alueen_maaritys:
+  prefiksit: []
+
+# Repo listaa testitiedostot, joiden on oltava headissa ja joiden
+# testifunktioiden määrä ei saa laskea baseen nähden.
+invarianttitestit: []
