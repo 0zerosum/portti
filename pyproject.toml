@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portti"
+description = "Deterministinen katselmointiportti git-repoille: faktat, verdict ja evidence-JSON"
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = ["pyyaml>=6.0,<7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+portti = "portti.cli:main"
+
+[tool.setuptools]
+packages = ["portti"]
+
+[tool.setuptools.dynamic]
+version = {attr = "portti.version.VERSIO"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
