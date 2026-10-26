@@ -31,7 +31,8 @@ def test_arvioi_kirjoittaa_evidencen(tmp_path: Path, capsys: pytest.CaptureFixtu
 def test_arvioi_draft_on_puute_ja_tulostaa_jsonin(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     repo, base = perusrepo(tmp_path / "repo")
     head = repo.commit("tyhja")
-    koodi = main(["arvioi", "--base", base, "--head", head, "--repo-polku", str(repo.juuri), "--draft"])
+    koodi = main(["arvioi", "--base", base, "--head", head, "--repo-polku", str(repo.juuri),
+                  "--policy", str(tmp_path / "ei-ole.yml"), "--draft"])
     tuloste = capsys.readouterr()
     assert koodi == 0
     assert json.loads(tuloste.out)["verdict"] == "PUUTE"
@@ -47,7 +48,8 @@ def test_kommentti_komento_luo_kommentin(tmp_path: Path) -> None:
     repo.kirjoita("docs/ohje.md", "lisays\n")
     head = repo.commit()
     evidence_polku = tmp_path / "evidence.json"
-    main(["arvioi", "--base", base, "--head", head, "--repo-polku", str(repo.juuri), "--evidence", str(evidence_polku)])
+    main(["arvioi", "--base", base, "--head", head, "--repo-polku", str(repo.juuri),
+          "--policy", str(tmp_path / "ei-ole.yml"), "--evidence", str(evidence_polku)])
     vale = ValeGh({"issues/8/comments": []})
     koodi = main([
         "kommentti", "--evidence", str(evidence_polku), "--repo", "omistaja/keksitty", "--pr", "8",
@@ -64,9 +66,9 @@ def test_tarkista_tapaukset_kaatuu_poikkeamasta(tmp_path: Path, capsys: pytest.C
     head = repo.commit()
     yml = tmp_path / "tapaukset.yml"
     yml.write_text(f"tapaukset:\n  - {{nimi: ohjeet, base: {base}, head: {head}, odotettu_verdict: KOVA}}\n", encoding="utf-8")
-    assert main(["tarkista-tapaukset", str(yml), "--repo-polku", str(repo.juuri)]) == 0
+    assert main(["tarkista-tapaukset", str(yml), "--repo-polku", str(repo.juuri), "--policy", str(tmp_path / "ei-ole.yml")]) == 0
     yml.write_text(f"tapaukset:\n  - {{nimi: ohjeet, base: {base}, head: {head}, odotettu_verdict: VAPAA}}\n", encoding="utf-8")
-    assert main(["tarkista-tapaukset", str(yml), "--repo-polku", str(repo.juuri)]) == 1
+    assert main(["tarkista-tapaukset", str(yml), "--repo-polku", str(repo.juuri), "--policy", str(tmp_path / "ei-ole.yml")]) == 1
     assert "EROAA ohjeet" in capsys.readouterr().out
 
 
