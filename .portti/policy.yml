@@ -1,0 +1,6 @@
+# Portti-repon oma policy. Täydentää defaults/policy.yml:ää.
+alueen_maaritys:
+  prefiksit: []
+invarianttitestit:
+  - tests/test_verdict.py
+  - tests/test_policy.py

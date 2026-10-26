@@ -1,0 +1,29 @@
+name: Portti (oma shadow-ajo)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: portti-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  portti:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hae repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Aja portti tästä checkoutista
+        uses: ./
+        with:
+          policy_polku: .portti/policy.yml
+          tila: shadow
+          github_token: ${{ secrets.GITHUB_TOKEN }}

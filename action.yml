@@ -1,0 +1,93 @@
+name: Portti
+description: >-
+  Deterministinen katselmointiportti. Luokittelee PR:n diffin repon policyn mukaan,
+  kirjoittaa evidence-JSONin artefaktiksi ja yhden päivittyvän PR-kommentin.
+  Shadow-tilassa ei hyväksy, ei pyydä muutoksia eikä estä mergeä.
+
+inputs:
+  policy_polku:
+    description: Repon policy-tiedosto, joka täydentää moottorin oletuspolicyä.
+    required: false
+    default: .portti/policy.yml
+  tila:
+    description: shadow (vain kommentti) tai enforce (ei toteutettu, kaatuu).
+    required: false
+    default: shadow
+  github_token:
+    description: Token, jolla luetaan PR:n tila ja kirjoitetaan kommentti (pull-requests write).
+    required: true
+  python_versio:
+    description: Python-tulkin versio moottorille.
+    required: false
+    default: "3.11"
+
+runs:
+  using: composite
+  steps:
+    - name: Hae kuluttajarepo koko historialla
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Asenna Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: ${{ inputs.python_versio }}
+
+    - name: Asenna moottorin riippuvuudet
+      shell: bash
+      run: python -m pip install --quiet --disable-pip-version-check "pyyaml>=6.0,<7"
+
+    - name: Lue PR:n edellytykset
+      id: edellytykset
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR_NUMERO: ${{ github.event.pull_request.number }}
+      run: |
+        tila="$(gh pr view "$PR_NUMERO" --repo "$GITHUB_REPOSITORY" --json isDraft,mergeable)"
+        draft="$(printf '%s' "$tila" | python -c 'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())')"
+        konflikti="$(printf '%s' "$tila" | python -c 'import json,sys; print("true" if json.load(sys.stdin)["mergeable"]=="CONFLICTING" else "false")')"
+        echo "draft=$draft" >> "$GITHUB_OUTPUT"
+        echo "konflikti=$konflikti" >> "$GITHUB_OUTPUT"
+
+    - name: Arvioi PR
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMERO: ${{ github.event.pull_request.number }}
+        TEKIJA: ${{ github.event.pull_request.user.login }}
+        POLICY_POLKU: ${{ inputs.policy_polku }}
+        TILA: ${{ inputs.tila }}
+        DRAFT: ${{ steps.edellytykset.outputs.draft }}
+        KONFLIKTI: ${{ steps.edellytykset.outputs.konflikti }}
+      run: |
+        liput=()
+        [ "$DRAFT" = "true" ] && liput+=(--draft)
+        [ "$KONFLIKTI" = "true" ] && liput+=(--konflikti)
+        python -m portti.cli arvioi \
+          --base "$BASE_SHA" --head "$HEAD_SHA" \
+          --policy "$POLICY_POLKU" --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMERO" \
+          --tekija "$TEKIJA" --tila "$TILA" --evidence portti-evidence.json "${liput[@]}"
+
+    - name: Lataa evidence artefaktiksi
+      id: artefakti
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: portti-evidence-pr${{ github.event.pull_request.number }}
+        path: portti-evidence.json
+        overwrite: true
+
+    - name: Kirjoita tai päivitä portin kommentti
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PYTHONPATH: ${{ github.action_path }}
+        PR_NUMERO: ${{ github.event.pull_request.number }}
+        ARTEFAKTI_URL: ${{ steps.artefakti.outputs.artifact-url }}
+      run: |
+        python -m portti.cli kommentti \
+          --evidence portti-evidence.json --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMERO" \
+          --artefakti-url "$ARTEFAKTI_URL"

@@ -44,7 +44,8 @@ class GitHubApi:
 
     def hae_pr(self, repo: str, pr_numero: int) -> dict[str, Any]:
         kentat = "isDraft,mergeable,headRefOid,baseRefOid,author"
-        return self._json(["pr", "view", str(pr_numero), "--repo", repo, "--json", kentat])
+        tulos = self._json(["pr", "view", str(pr_numero), "--repo", repo, "--json", kentat])
+        return dict(tulos) if isinstance(tulos, dict) else {}
 
     def hae_suljetut_prt(self, repo: str, alkaen: str) -> list[dict[str, Any]]:
         kentat = "number,state,mergedAt,closedAt,headRefOid"
