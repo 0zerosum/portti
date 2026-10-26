@@ -1,0 +1,26 @@
+# Portti-repon omat regressiotapaukset. Shat ovat tämän repon historiaa.
+tapaukset:
+  - nimi: policy-commit ennen invarianttitestin olemassaoloa on KOVA
+    base: 9029e6c823c30e8a3d642d54a6d424988d9f5942
+    head: d10858d7fe80e976e9cff96a799f9e40bdbdbd30
+    odotettu_verdict: KOVA
+    odotettu_tier: YLI
+  - nimi: verdict ja evidence testeineen on VAPAA T1c
+    base: 077e5a278383552a5d1d1c4ba81b4967ad0e2362
+    head: 12863f94de9000342a249486db333ccf87fe61e5
+    odotettu_verdict: VAPAA
+    odotettu_tier: T1c
+  - nimi: komentorivi ja kolme moduulia on LIIAN-ISO
+    base: 12863f94de9000342a249486db333ccf87fe61e5
+    head: ead00536016a493475a327cdc7758a2ff0a77e8c
+    odotettu_verdict: LIIAN-ISO
+    odotettu_tier: YLI
+  - nimi: action ja työnkulut osuvat kova-kategorioihin ci ja portti_itse
+    base: ead00536016a493475a327cdc7758a2ff0a77e8c
+    head: b9f5793a4d395c72370952ae92b361c111c2c592
+    odotettu_verdict: KOVA
+  - nimi: pelkkä README on VAPAA T0
+    base: b9f5793a4d395c72370952ae92b361c111c2c592
+    head: e2bdd67975946cf5cb232e5a7c547dd63fd0c554
+    odotettu_verdict: VAPAA
+    odotettu_tier: T0
