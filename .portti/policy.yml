@@ -4,3 +4,13 @@ alueen_maaritys:
 invarianttitestit:
   - tests/test_verdict.py
   - tests/test_policy.py
+# Synteettinen PR: lisää pehmeän kategorian, joka osuu tämän PR:n omaan muutokseen.
+deny:
+  pehmea:
+    muutoshistoria:
+      polut: ["CHANGELOG*"]
+      perustelu: "synteettinen testi: head- ja base-policy antavat eri osumat"
+allow:
+  laajenna_paitsi: ["CHANGELOG*"]
+ei_laskennassa:
+  laajenna_paitsi: ["CHANGELOG*"]
