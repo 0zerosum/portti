@@ -53,9 +53,10 @@ kielletyt_uudet_polut:
 # T0: pelkästään näitä koskettava PR on vapaa. Kova deny menee aina edelle.
 allow:
   polut: ["docs/**", "README*", "CHANGELOG*", "LICENSE*", "fixtures/**", "*.md"]
-  paitsi: ["docs/specs/**"]
+  paitsi: ["docs/specs/**", "CLAUDE.md", ".claude/**"]
 
-# Ei lasketa substantiivisiin riveihin eikä tiedostoihin.
+# Ei lasketa substantiivisiin riveihin eikä tiedostoihin. Lukkotiedostot lasketaan: ne ovat kova-kategoria,
+# eikä allow- tai ei_laskennassa-polku saa leikata deny-polkua (latausvirhe).
 ei_laskennassa:
   polut:
     - "docs/**"
@@ -65,7 +66,6 @@ ei_laskennassa:
     - "**/__snapshots__/**"
     - "*.snap"
   paitsi: ["docs/specs/**", "CLAUDE.md", ".claude/**"]
-ei_laskennassa_lukkotiedostot: *lukkotiedostot
 
 # Testit eivät ole laskennassa, paitsi policyn `invarianttitestit`.
 # Pelkkiä testejä muuttava PR on T0 vain, jos testifunktioiden määrä ei laske.
