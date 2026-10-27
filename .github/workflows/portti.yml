@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  portti:
+  portti-shadow:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -21,9 +21,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Aja portti tästä checkoutista
+      - name: Aja portti tästä checkoutista (policy headista)
         uses: ./
         with:
           policy_polku: .portti/policy.yml
           tila: shadow
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Enforce-luentapolku: policy ja tapaukset basesta. Esto ei ole toteutettu, joten tämä ei estä mergeä.
+  portti-enforce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hae repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Aja portti tästä checkoutista (policy basesta)
+        uses: ./
+        with:
+          policy_polku: .portti/policy.yml
+          tila: enforce
           github_token: ${{ secrets.GITHUB_TOKEN }}

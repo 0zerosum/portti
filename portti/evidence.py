@@ -23,6 +23,7 @@ class Konteksti:
     head_sha: str
     tekija: str | None
     tila: str = "shadow"
+    policy_lahde: str = "head"
 
 
 def _tiedostot(luokitus: Luokitus) -> list[dict[str, Any]]:
@@ -71,6 +72,7 @@ def rakenna_evidence(
         "head_sha": konteksti.head_sha,
         "tekija": konteksti.tekija,
         "tila": konteksti.tila,
+        "policy_lahde": konteksti.policy_lahde,
         "luokitus": _luokitus(luokitus),
         "portit": [asdict(portti) for portti in verdict.portit],
         "verdict": verdict.verdict,

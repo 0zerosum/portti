@@ -14,9 +14,18 @@ inputs:
     required: false
     default: .portti/tapaukset.yml
   tila:
-    description: shadow (vain kommentti) tai enforce (ei toteutettu, kaatuu).
+    description: >-
+      shadow (PR:n oma policy, vain kommentti) tai enforce (policy base-haarasta; verdictin
+      estävä osa ei toteutettu, eli ei estä vielä).
     required: false
     default: shadow
+  policy_lahde:
+    description: >-
+      Mistä policy ja tapaukset luetaan: head (PR:n versio), base (base-haaran versio) tai auto
+      (shadow → head, enforce → base). Jos basessa ei ole policyä: enforce kaatuu, shadow lukee headista
+      ja merkitsee sen kommenttiin.
+    required: false
+    default: auto
   github_token:
     description: Token, jolla luetaan PR:n tila ja kirjoitetaan kommentti (pull-requests write).
     required: true
@@ -67,6 +76,7 @@ runs:
         PR_NUMERO: ${{ github.event.pull_request.number }}
         TEKIJA: ${{ github.event.pull_request.user.login }}
         POLICY_POLKU: ${{ inputs.policy_polku }}
+        POLICY_LAHDE: ${{ inputs.policy_lahde }}
         TILA: ${{ inputs.tila }}
         DRAFT: ${{ steps.edellytykset.outputs.draft }}
         KONFLIKTI: ${{ steps.edellytykset.outputs.konflikti }}
@@ -76,7 +86,7 @@ runs:
         [ "$KONFLIKTI" = "true" ] && liput+=(--konflikti)
         python -m portti.cli arvioi \
           --base "$BASE_SHA" --head "$HEAD_SHA" \
-          --policy "$POLICY_POLKU" --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMERO" \
+          --policy "$POLICY_POLKU" --policy-lahde "$POLICY_LAHDE" --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMERO" \
           --tekija "$TEKIJA" --tila "$TILA" --evidence portti-evidence.json "${liput[@]}"
 
     - name: Lataa evidence artefaktiksi
@@ -108,4 +118,9 @@ runs:
         PYTHONSAFEPATH: "1"
         TAPAUKSET_POLKU: ${{ inputs.tapaukset_polku }}
         POLICY_POLKU: ${{ inputs.policy_polku }}
-      run: python -m portti.cli tarkista-tapaukset "$TAPAUKSET_POLKU" --policy "$POLICY_POLKU"
+        POLICY_LAHDE: ${{ inputs.policy_lahde }}
+        TILA: ${{ inputs.tila }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        python -m portti.cli tarkista-tapaukset "$TAPAUKSET_POLKU" --policy "$POLICY_POLKU" \
+          --lahde "$POLICY_LAHDE" --tila "$TILA" --base "$BASE_SHA"

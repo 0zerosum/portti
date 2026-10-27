@@ -24,6 +24,7 @@ def test_evidence_sisaltaa_faktat_ja_on_deterministinen(tmp_path: Path) -> None:
     assert evidence["moottorin_versio"] == VERSIO
     assert evidence["verdict"] == "KOVA" and evidence["luokitus"]["tier"] == "T1b"
     assert evidence["tekija"] == "keksitty-tunnus" and evidence["pr_numero"] == 7
+    assert evidence["policy_lahde"] == "head" and evidence["tila"] == "shadow"
     assert evidence["policy"]["oletuksen_sha256"] == policy.oletuksen_sha
     assert {portti["nimi"] for portti in evidence["portit"]} >= {"kova_deny", "koko"}
     assert evidence["luokitus"]["alueet"] == ["(juuri)", "palvelin/sovellus"]
