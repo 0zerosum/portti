@@ -9,6 +9,10 @@ inputs:
     description: Repon policy-tiedosto, joka täydentää moottorin oletuspolicyä.
     required: false
     default: .portti/policy.yml
+  tapaukset_polku:
+    description: Repon regressiotapaukset; ajetaan, jos tiedosto on olemassa. Poikkeama kaataa askeleen.
+    required: false
+    default: .portti/tapaukset.yml
   tila:
     description: shadow (vain kommentti) tai enforce (ei toteutettu, kaatuu).
     required: false
@@ -44,17 +48,20 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
         PR_NUMERO: ${{ github.event.pull_request.number }}
+        DRAFT_TAPAHTUMASTA: ${{ github.event.pull_request.draft }}
+        PYTHONSAFEPATH: "1"
       run: |
-        tila="$(gh pr view "$PR_NUMERO" --repo "$GITHUB_REPOSITORY" --json isDraft,mergeable)"
-        draft="$(printf '%s' "$tila" | python -c 'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())')"
+        # Luonnostila tulee tapahtumasta; mergeable-tila luetaan API:sta, koska GitHub laskee sen viiveellä (UNKNOWN ei ole konflikti).
+        tila="$(gh pr view "$PR_NUMERO" --repo "$GITHUB_REPOSITORY" --json mergeable)"
         konflikti="$(printf '%s' "$tila" | python -c 'import json,sys; print("true" if json.load(sys.stdin)["mergeable"]=="CONFLICTING" else "false")')"
-        echo "draft=$draft" >> "$GITHUB_OUTPUT"
+        echo "draft=$DRAFT_TAPAHTUMASTA" >> "$GITHUB_OUTPUT"
         echo "konflikti=$konflikti" >> "$GITHUB_OUTPUT"
 
     - name: Arvioi PR
       shell: bash
       env:
         PYTHONPATH: ${{ github.action_path }}
+        PYTHONSAFEPATH: "1"
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         PR_NUMERO: ${{ github.event.pull_request.number }}
@@ -85,9 +92,20 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
         PYTHONPATH: ${{ github.action_path }}
+        PYTHONSAFEPATH: "1"
         PR_NUMERO: ${{ github.event.pull_request.number }}
         ARTEFAKTI_URL: ${{ steps.artefakti.outputs.artifact-url }}
       run: |
         python -m portti.cli kommentti \
           --evidence portti-evidence.json --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMERO" \
           --artefakti-url "$ARTEFAKTI_URL"
+
+    - name: Repon regressiotapaukset
+      if: ${{ hashFiles(inputs.tapaukset_polku) != '' }}
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}
+        PYTHONSAFEPATH: "1"
+        TAPAUKSET_POLKU: ${{ inputs.tapaukset_polku }}
+        POLICY_POLKU: ${{ inputs.policy_polku }}
+      run: python -m portti.cli tarkista-tapaukset "$TAPAUKSET_POLKU" --policy "$POLICY_POLKU"
