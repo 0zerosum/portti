@@ -92,7 +92,8 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
 |---|---|---|
 | `policy_polku` | `.portti/policy.yml` | repon policy |
 | `tapaukset_polku` | `.portti/tapaukset.yml` | regressiotapaukset; ajetaan, jos tiedosto on olemassa |
-| `tila` | `shadow` | `shadow` kommentoi; `enforce` kaatuu "ei toteutettu" |
+| `tila` | `shadow` | `shadow` lukee PR:n policyn; `enforce` lukee base-haaran policyn, mutta ei vielä estä |
+| `policy_lahde` | `auto` | `head`, `base` tai `auto` (shadow → head, enforce → base) |
 | `github_token` | – | PR:n tilan luku ja kommentin kirjoitus |
 | `python_versio` | `3.11` | moottorin tulkki |
 
@@ -100,13 +101,42 @@ Shadow-tilassa action ei hyväksy, ei pyydä muutoksia eikä palauta verdictist�
 estävää exit-koodia. Evidence ladataan artefaktiksi `portti-evidence-pr<numero>`.
 Regressiotapausten poikkeama sen sijaan kaataa askeleen, kuten rikkoutunut testi.
 Kaikki Python-askeleet ajetaan `PYTHONSAFEPATH=1`, jotta PR:n checkoutin tiedostot
-eivät varjosta moottorin moduuleja. Shadow-tilassa PR:n oma policy ja työnkulku
-ohjaavat ajoa; enforce-tila edellyttää niiden lukemista base-haarasta (päätöslista).
+eivät varjosta moottorin moduuleja.
+
+## Enforce-valmius
+
+Shadow-tilassa PR:n oma policy ohjaa ajoa, joten PR voisi muuttaa sääntöjä, joilla se
+arvioidaan. Enforce-tilassa (tai `policy_lahde: base`) policy ja tapaukset luetaan
+base-haaran versiosta (`git show <base-sha>:.portti/policy.yml`). Jos basessa ei ole
+policyä, enforce kaatuu näkyvästi ja shadow lukee headista merkinnällä kommentissa.
+Enforce- ja shadow-ajo kirjoittavat kumpikin oman kommenttinsa.
+
+Enforce ei vielä estä mitään: verdictin estävä osa on toteuttamatta. Kun se toteutetaan,
+estäminen vaatii lisäksi GitHubissa required status checkin ja branch protectionin
+base-haaralle. Ilman niitä PR voi poistaa workflow-tiedoston, eikä moottori voi sitä estää.
+
+## Päällekkäisyyssääntö
+
+Allow- tai ei_laskennassa-polku ei saa leikata kova- tai pehmea-polkua. Muuten pehmeä
+muutos voisi olla T0 ja hyväksyttävissä kaikilla portailla. Policy ei lataudu, ja
+virheilmoitus nimeää polut ja korjauksen:
+
+```
+deny pehmea/testidata polku 'fixtures/henkilot.json' leikkaa allow-polun 'fixtures/**';
+lisää 'fixtures/henkilot.json' listaan allow.laajenna_paitsi
+```
+
+Tarkistus on mallitasolla: sama literaalipolku tai glob, joka sisältyy toiseen.
+`paitsi`-lista poistaa leikkauksen.
 
 ## Muut komennot
 
-- `portti shadow-raportti --repo <omistaja/repo> --alkaen <VVVV-KK-PP>` vertaa
-  portin verdictit suljettujen PR:ien lopputuloksiin. Ei tallenna mitään.
+- `portti shadow-raportti --repo <omistaja/repo> [--repo <toinen>] --alkaen <VVVV-KK-PP> [--json]`
+  vertaa portin verdictit suljettujen PR:ien lopputuloksiin. Ryhmittelee base-haaran mukaan
+  (main erikseen, feat/* ja feature/* yhdessä, muut omanaan), pudottaa draftit ja tulostaa per
+  ryhmä: "KOVA/PEHMEÄ mutta mergetty muuttamatta", "VAPAA mutta hylätty", väärät osumat
+  deny-kategorioittain, jakauma tiereittäin ja portaittain. Lukee kommentin konedatan (säilyy
+  PR:n mukana; artefakti vanhenee). Ei tallenna mitään.
 - `portti kommentti --evidence <json> --repo <omistaja/repo> --pr <n>` kirjoittaa
   tai päivittää portin kommentin.
 
