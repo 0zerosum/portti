@@ -37,10 +37,18 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
          perustelu: "Laskutuksen virheet näkyvät asiakkaalle."
    laajenna_kielletyt_uudet_polut: ["**/salainen/**"]
    generoidut: ["**/*_pb2.py"]
+   # laajenna_ toimii myös mapping-avainten sisällä: lisää oletuksen listaan korvaamatta sitä.
+   laajenna_testit: ["palvelin/tests/**"]
+   ei_laskennassa:
+     laajenna_polut: ["kuvat/**"]
+     laajenna_paitsi: ["fixtures/henkilot.json"]
+   allow:
+     laajenna_paitsi: ["fixtures/henkilot.json"]
    ```
 
 2. `.portti/tapaukset.yml` — repon omat regressiotapaukset.
-   `portti tarkista-tapaukset .portti/tapaukset.yml` kaatuu poikkeamasta.
+   `portti tarkista-tapaukset .portti/tapaukset.yml` kaatuu poikkeamasta. Action ajaa
+   tiedoston itse, jos se on olemassa (syöte `tapaukset_polku`).
 
    ```yaml
    tapaukset:
@@ -70,22 +78,30 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
              github_token: ${{ secrets.GITHUB_TOKEN }}
    ```
 
-   Yksityistä action-repoa voi käyttää vain saman omistajan repoista, kun tämän
-   repon asetus *Actions → Access* sallii sen. Muun omistajan repo hakee moottorin
-   erikseen `actions/checkout`-askeleella (`repository: 0zerosum/portti`,
-   `path: .portti-moottori`, lukutoken) ja kutsuu `uses: ./.portti-moottori`.
+   Repo on julkinen, joten `uses: 0zerosum/portti@<sha>` toimii mistä tahansa reposta
+   ilman tokenia. Actionia ei voi kutsua muodossa `uses: ./<polku>` repoon haetusta
+   kopiosta: actionin oma checkout-askel siivoaa työtilan ja poistaisi kopion kesken ajon.
+   Jos moottoria tarvitaan samassa työnkulussa muuhun (esimerkiksi `tarkista-tapaukset`
+   ennen actionia), hae se `actions/checkout`-askeleella omaan kansioonsa ja aja
+   `python -m portti.cli` ympäristömuuttujilla `PYTHONPATH=<kansio>` ja `PYTHONSAFEPATH=1`
+   ennen action-askelta.
 
 ## Actionin syötteet
 
 | Syöte | Oletus | Merkitys |
 |---|---|---|
 | `policy_polku` | `.portti/policy.yml` | repon policy |
+| `tapaukset_polku` | `.portti/tapaukset.yml` | regressiotapaukset; ajetaan, jos tiedosto on olemassa |
 | `tila` | `shadow` | `shadow` kommentoi; `enforce` kaatuu "ei toteutettu" |
 | `github_token` | – | PR:n tilan luku ja kommentin kirjoitus |
 | `python_versio` | `3.11` | moottorin tulkki |
 
-Shadow-tilassa action ei hyväksy, ei pyydä muutoksia eikä palauta estävää
-exit-koodia. Evidence ladataan artefaktiksi `portti-evidence-pr<numero>`.
+Shadow-tilassa action ei hyväksy, ei pyydä muutoksia eikä palauta verdictistä
+estävää exit-koodia. Evidence ladataan artefaktiksi `portti-evidence-pr<numero>`.
+Regressiotapausten poikkeama sen sijaan kaataa askeleen, kuten rikkoutunut testi.
+Kaikki Python-askeleet ajetaan `PYTHONSAFEPATH=1`, jotta PR:n checkoutin tiedostot
+eivät varjosta moottorin moduuleja. Shadow-tilassa PR:n oma policy ja työnkulku
+ohjaavat ajoa; enforce-tila edellyttää niiden lukemista base-haarasta (päätöslista).
 
 ## Muut komennot
 
