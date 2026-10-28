@@ -117,9 +117,9 @@ base-haaralle. Ilman niitä PR voi poistaa workflow-tiedoston, eikä moottori vo
 
 ## Päällekkäisyyssääntö
 
-Allow- tai ei_laskennassa-polku ei saa leikata kova- tai pehmea-polkua. Muuten pehmeä
-muutos voisi olla T0 ja hyväksyttävissä kaikilla portailla. Policy ei lataudu, ja
-virheilmoitus nimeää polut ja korjauksen:
+Allow-polku ei saa leikata kova- tai pehmea-polkua. Muuten pehmeä muutos voisi olla T0
+ja hyväksyttävissä kaikilla portailla. Policy ei lataudu, ja virheilmoitus nimeää polut
+ja korjauksen:
 
 ```
 deny pehmea/testidata polku 'fixtures/henkilot.json' leikkaa allow-polun 'fixtures/**';
@@ -127,7 +127,9 @@ lisää 'fixtures/henkilot.json' listaan allow.laajenna_paitsi
 ```
 
 Tarkistus on mallitasolla: sama literaalipolku tai glob, joka sisältyy toiseen.
-`paitsi`-lista poistaa leikkauksen.
+`paitsi`-lista poistaa leikkauksen. ei_laskennassa-lista saa leikata deny-polkuja:
+generoitu tiedosto deny-kansiossa jää laskennasta pois, mutta deny osuu siihen silti,
+eikä T0 synny ilman allow-osumaa.
 
 ## Muut komennot
 

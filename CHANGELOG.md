@@ -7,8 +7,8 @@
   ei policy.yml-tiedostoa, luettu headista)". Evidenceen kenttä `policy_lahde`.
 - Enforce-tila ei enää kaadu "ei toteutettu": luentapolku on toteutettu, verdictin estävä osa ei. Enforce-kommentti
   on oma kommenttinsa (tunniste sisältää tilan), joten shadow- ja enforce-ajo samassa PR:ssä eivät sekoitu.
-- Policy: allow- tai ei_laskennassa-polku, joka leikkaa kova- tai pehmea-polun, on latausvirhe. Virheilmoitus nimeää
-  polut ja `laajenna_paitsi`-korjauksen. Oletuksesta poistettu `ei_laskennassa_lukkotiedostot` (lukkotiedostot
+- Policy: allow-polku, joka leikkaa kova- tai pehmea-polun, on latausvirhe (T0-aukko). Virheilmoitus nimeää
+  polut ja `allow.laajenna_paitsi`-korjauksen. ei_laskennassa saa leikata deny-polkuja (generoidut tiedostot). Oletuksesta poistettu `ei_laskennassa_lukkotiedostot` (lukkotiedostot
   lasketaan, ovat kova) ja allow-poikkeuksiin lisätty CLAUDE.md ja .claude/**.
 - Kommentin konedata laajennettu: tila, policy_lahde, deny-kategoriat, portaat, puute. Shadow-raportti lukee nämä.
 - `portti shadow-raportti`: useita `--repo`, ryhmittely base-haaran mukaan (main, feat/* ja feature/* yhdessä,

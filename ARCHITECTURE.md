@@ -11,7 +11,7 @@ pinnatulla sha:lla.
 | `portti/polkumallit.py` | gitignore-tyyliset polkumallit → regex, osumat ja `paitsi`-poikkeukset |
 | `portti/policy_skeema.py` | tiukka skeema: tuntematon avain, väärä tyyppi, `portti_itse`-suoja |
 | `portti/policy.py` | oletus- ja repopolicyn yhdistäminen (`laajenna_<avain>`), `Policy`-olio, päällekkäisyystarkistuksen kutsu |
-| `portti/paallekkaisyys.py` | allow/ei_laskennassa vs kova/pehmea mallitasolla (literaali tai glob, joka sisältyy toiseen) |
+| `portti/paallekkaisyys.py` | allow vs kova/pehmea mallitasolla (literaali tai glob, joka sisältyy toiseen); ei_laskennassa saa leikata |
 | `portti/policy_lahde.py` | policyn ja tapausten luku headista tai basesta (`git show <base-sha>:polku`) tilan mukaan |
 | `portti/git_diff.py` | `git diff base...head` numstat ja name-status (renamet mukaan), tiedoston sisältö revisiosta |
 | `portti/invariantit.py` | testifunktioiden laskenta, invarianttitestien tarkistus |

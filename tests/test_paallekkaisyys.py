@@ -57,14 +57,13 @@ def test_pehmea_polku_allow_listalla_kaatuu_ja_nimeaa_korjauksen(tmp_path: Path)
     viesti = str(virhe.value)
     assert "pehmea/testidata" in viesti and "'fixtures/henkilot.json'" in viesti
     assert "allow-polun 'fixtures/**'" in viesti and "allow.laajenna_paitsi" in viesti
-    assert "ei_laskennassa-polun 'fixtures/**'" in viesti and "ei_laskennassa.laajenna_paitsi" in viesti
+    assert "ei_laskennassa" not in viesti
 
 
 def test_laajenna_paitsi_korjaa(tmp_path: Path) -> None:
     repo = kirjoita(tmp_path / "policy.yml",
                     "deny:\n  pehmea:\n    testidata:\n      polut: ['fixtures/henkilot.json']\n"
-                    "allow:\n  laajenna_paitsi: ['fixtures/henkilot.json']\n"
-                    "ei_laskennassa:\n  laajenna_paitsi: ['fixtures/henkilot.json']\n")
+                    "allow:\n  laajenna_paitsi: ['fixtures/henkilot.json']\n")
     policy = lataa_policy(repo)
     assert policy.pehmea[0].nimi == "testidata"
 
@@ -79,9 +78,17 @@ def test_kova_glob_docs_alla_kaatuu(tmp_path: Path) -> None:
 def test_poikkeus_globilla_korjaa(tmp_path: Path) -> None:
     repo = kirjoita(tmp_path / "policy.yml",
                     "deny:\n  kova:\n    rekisteri:\n      polut: ['docs/rekisteri/**', 'docs/paatokset.md']\n"
-                    "allow:\n  laajenna_paitsi: ['docs/rekisteri/**', 'docs/paatokset.md']\n"
-                    "ei_laskennassa:\n  laajenna_paitsi: ['docs/rekisteri/**', 'docs/paatokset.md']\n")
+                    "allow:\n  laajenna_paitsi: ['docs/rekisteri/**', 'docs/paatokset.md']\n")
     assert lataa_policy(repo).kova[-1].nimi == "rekisteri"
+
+
+def test_ei_laskennassa_leikkaus_sallitaan(tmp_path: Path) -> None:
+    """Generoitu tiedosto saa olla deny-kansiossa: se ei lasketa, mutta deny osuu silti."""
+    repo = kirjoita(tmp_path / "policy.yml",
+                    "deny:\n  pehmea:\n    avustaja:\n      polut: ['palvelin/avustaja/**']\n"
+                    "generoidut: ['palvelin/avustaja/tietopohja.gen.ts']\n")
+    policy = lataa_policy(repo)
+    assert "palvelin/avustaja/tietopohja.gen.ts" in policy.ei_laskennassa.polut
 
 
 def test_deny_koodipolku_ei_leikkaa(tmp_path: Path) -> None:

@@ -99,13 +99,18 @@ def _ei_laskennassa(yhdistetty: dict[str, Any]) -> PolkuSaanto:
 
 
 def tarkista_paallekkaisyydet(policy: Policy) -> None:
-    """allow- tai ei_laskennassa-polku ei saa leikata kova- tai pehmea-polkua (T0-aukko)."""
+    """allow-polku ei saa leikata kova- tai pehmea-polkua (T0-aukko).
+
+    ei_laskennassa-leikkaukset sallitaan (CTO 27.10.2026): T0 vaatii allow-osuman, joten pelkkä
+    laskennan ulkopuolelle jättäminen ei tee deny-polusta hyväksyttävää; generoidut tiedostot
+    saavat olla deny-kansioissa.
+    """
     deny_polut = [
         (kategoria.taso, kategoria.nimi, polku)
         for kategoria in policy.kova + policy.pehmea
         for polku in kategoria.polut
     ]
-    virheet = etsi_leikkaukset(deny_polut, {"allow": policy.allow, "ei_laskennassa": policy.ei_laskennassa})
+    virheet = etsi_leikkaukset(deny_polut, {"allow": policy.allow})
     if virheet:
         raise PolicyVirhe("policy: päällekkäiset polut:\n  " + "\n  ".join(virheet))
 

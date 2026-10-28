@@ -1,9 +1,9 @@
-"""Päällekkäisyystarkistus: allow- tai ei_laskennassa-polku ei saa leikata deny-polkua.
+"""Päällekkäisyystarkistus: allow-polku ei saa leikata deny-polkua.
 
 Miksi: pehmeä polku, joka on myös T0-listalla, saa verdictin PEHMEÄ tierillä T0 ja olisi
-hyväksyttävissä kaikilla portailla. Sama leikkaus kova-polun kanssa tekee laskennasta harhaanjohtavan.
-Tarkistus on mallitasolla: sama literaalipolku tai glob, joka sisältyy toiseen. Poikkeuslista
-(`paitsi`) poistaa leikkauksen.
+hyväksyttävissä kaikilla portailla. Tarkistus on mallitasolla: sama literaalipolku tai glob, joka
+sisältyy toiseen. Poikkeuslista (`paitsi`) poistaa leikkauksen. Kutsuja päättää, mitkä säännöt
+tarkistetaan (policy.py: vain allow).
 """
 
 from __future__ import annotations
