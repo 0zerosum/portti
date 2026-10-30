@@ -101,3 +101,28 @@ def test_oletuspolicy_lapaisee() -> None:
     policy = lataa_policy(None)
     assert "CLAUDE.md" in policy.allow.paitsi and ".claude/**" in policy.allow.paitsi
     assert not any("lock" in malli for malli in policy.ei_laskennassa.polut)
+
+
+T0_AUKKO = (
+    "deny:\n  kova:\n    ehdot:\n      polut: ['ohjeet/08-ehdot.md']\n"
+    "  pehmea:\n    paatokset:\n      polut: ['docs/paatokset.md']\n"
+)
+
+
+def test_t0_aukko_literaali_md_oletuksen_allow_listalla_kaatuu(tmp_path: Path) -> None:
+    """Aiemmin osunut aukko keksityin poluin: deny-literaali .md-tiedosto osuu oletuksen allow-globeihin."""
+    repo = kirjoita(tmp_path / "policy.yml", T0_AUKKO)
+    with pytest.raises(PolicyVirhe) as virhe:
+        lataa_policy(repo)
+    viesti = str(virhe.value)
+    assert "kova/ehdot polku 'ohjeet/08-ehdot.md' leikkaa allow-polun '*.md'" in viesti
+    assert "pehmea/paatokset polku 'docs/paatokset.md' leikkaa allow-polun 'docs/**'" in viesti
+    assert "allow.laajenna_paitsi" in viesti
+
+
+def test_t0_aukko_korjattu_paitsi_rivilla(tmp_path: Path) -> None:
+    repo = kirjoita(tmp_path / "policy.yml",
+                    T0_AUKKO + "allow:\n  laajenna_paitsi: ['ohjeet/08-ehdot.md', 'docs/paatokset.md']\n")
+    policy = lataa_policy(repo)
+    assert policy.kova[-1].nimi == "ehdot" and policy.pehmea[0].nimi == "paatokset"
+    assert "ohjeet/08-ehdot.md" in policy.allow.paitsi
