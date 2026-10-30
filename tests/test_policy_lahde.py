@@ -131,3 +131,33 @@ def test_tapaukset_basesta(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
                  "--tila", "enforce", "--base", main_sha]) == 0
     assert "policy ja tapaukset: base" in capsys.readouterr().err
     assert main(["tarkista-tapaukset", ".portti/tapaukset.yml", "--repo-polku", str(repo.juuri), "--lahde", "base"]) == 2
+
+
+KEVENTAVA_POLICY = (
+    "deny:\n  pehmea:\n    laskenta:\n      polut: ['palvelin/sovellus/laskenta/arkisto/**']\n"
+    "ei_laskennassa:\n  laajenna_polut: ['palvelin/sovellus/laskenta/**']\n"
+)
+
+
+def test_pr_ei_saa_kevyempaa_luokkaa_omalla_policymuutoksellaan(tmp_path: Path) -> None:
+    """Invariantti: .portti/** -muutos on KOVA, ja base-luku ei kevene PR:n oman policyn mukaan.
+
+    Base: laskenta on pehmeä ja laskennassa. PR kaventaa pehmeän polun ja siirtää laskennan laskennan
+    ulkopuolelle, ja muuttaa samalla 150 riviä laskentaa. Head-luku antaisi T1a ilman pehmeää osumaa.
+    """
+    repo, base = perusrepo(tmp_path / "repo")
+    repo.git("checkout", "-q", "main")
+    repo.kirjoita(".portti/policy.yml", PEHMEA_LASKENTA)
+    main_sha = repo.commit("pehmea laskenta mainiin")
+    repo.haara("keventava", main_sha)
+    repo.kirjoita(".portti/policy.yml", KEVENTAVA_POLICY)
+    repo.kirjoita("palvelin/sovellus/laskenta/ydin.py", rivit(150))
+    head = repo.commit("policy kevenee ja koodi muuttuu")
+    head_luku = arvioi_json(repo, main_sha, head, "--policy-lahde", "head")
+    base_luku = arvioi_json(repo, main_sha, head, "--policy-lahde", "base")
+    assert head_luku["luokitus"]["tier"] == "T1a" and base_luku["luokitus"]["tier"] == "T1c"
+    head_kategoriat = {osuma["kategoria"] for osuma in head_luku["luokitus"]["deny_osumat"]}
+    base_kategoriat = {osuma["kategoria"] for osuma in base_luku["luokitus"]["deny_osumat"]}
+    assert "laskenta" not in head_kategoriat and "laskenta" in base_kategoriat
+    assert head_luku["verdict"] == "KOVA" and base_luku["verdict"] == "KOVA"
+    assert "portti_itse" in head_kategoriat and "portti_itse" in base_kategoriat
