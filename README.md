@@ -25,6 +25,8 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
 1. `.portti/policy.yml` — täydentää oletusta. Mappingit yhdistetään avain
    kerrallaan, repon lista korvaa oletuksen listan, `laajenna_<avain>` lisää siihen.
    Tuntematon avain on latausvirhe. Kova-kategoriaa `portti_itse` ei saa korvata.
+   Sen polku `CODEOWNERS` on vain luokittelua varten: tiedoston muutos on kova, mutta portti ei
+   edellytä tiedostoa eikä GitHubin katselmointipakkoa, jota Free-tason yksityisrepossa ei ole.
 
    ```yaml
    alueen_maaritys:

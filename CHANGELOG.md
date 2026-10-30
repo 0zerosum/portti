@@ -15,6 +15,9 @@
   muut omanaan), draftit pudotetaan, per ryhmä mittarit, väärät KOVA/PEHMEÄ-osumat kategorioittain, jakauma
   tiereittäin ja portaittain; `--json`.
 - Komentorivi jaettu jäsentimeen (cli.py) ja komentoihin (cli_komennot.py).
+- Oletuspolicyn kommentti ja README: kova-kategoria on neuvoa-antava; nimettyä katselmoijaa tai CODEOWNERS-pakkoa
+  ei oleteta, koska Free-tason yksityisrepossa niitä ei ole. Invarianttitestit: base-luku ei kevene PR:n omasta
+  policymuutoksesta; deny-literaali `.md`-tiedosto oletuksen allow-listalla on latausvirhe.
 
 ## 0.2.0
 

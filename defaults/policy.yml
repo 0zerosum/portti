@@ -6,7 +6,8 @@
 # Tuntematon avain on latausvirhe. Kova-kategoriaa `portti_itse` ei saa korvata.
 #
 # Deny-tasojen semantiikka:
-#   kova   = ei automaattihyväksyntää, nimetty katselmoija, pinoaminen pysähtyy
+#   kova   = ei automaattihyväksyntää; CTO katselmoi itse, pinoaminen pysähtyy. Neuvoa-antava:
+#            GitHub ei pakota katselmoijaa eikä checkiä Free-tason yksityisrepossa.
 #   pehmea = ei T1-automaattia mainiin, yhteenvetoon "koskettu: <alueet>"
 
 versio: 1
