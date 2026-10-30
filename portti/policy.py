@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from portti.paallekkaisyys import etsi_leikkaukset
 from portti.policy_skeema import LAAJENNA, SKEEMA, PolicyVirhe, tarkista, tarkista_pakolliset
 from portti.polkumallit import PolkuSaanto
 
@@ -93,17 +94,30 @@ def _tierit(mapping: dict[str, Any]) -> tuple[TierRaja, ...]:
 
 
 def _ei_laskennassa(yhdistetty: dict[str, Any]) -> PolkuSaanto:
-    polut = (
-        list(yhdistetty["ei_laskennassa"]["polut"])
-        + list(yhdistetty["ei_laskennassa_lukkotiedostot"])
-        + list(yhdistetty["generoidut"])
-    )
+    polut = list(yhdistetty["ei_laskennassa"]["polut"]) + list(yhdistetty["generoidut"])
     return PolkuSaanto.luo(polut, yhdistetty["ei_laskennassa"]["paitsi"])
+
+
+def tarkista_paallekkaisyydet(policy: Policy) -> None:
+    """allow-polku ei saa leikata kova- tai pehmea-polkua (T0-aukko).
+
+    ei_laskennassa-leikkaukset sallitaan (CTO 27.10.2026): T0 vaatii allow-osuman, joten pelkkä
+    laskennan ulkopuolelle jättäminen ei tee deny-polusta hyväksyttävää; generoidut tiedostot
+    saavat olla deny-kansioissa.
+    """
+    deny_polut = [
+        (kategoria.taso, kategoria.nimi, polku)
+        for kategoria in policy.kova + policy.pehmea
+        for polku in kategoria.polut
+    ]
+    virheet = etsi_leikkaukset(deny_polut, {"allow": policy.allow})
+    if virheet:
+        raise PolicyVirhe("policy: päällekkäiset polut:\n  " + "\n  ".join(virheet))
 
 
 def rakenna_policy(yhdistetty: dict[str, Any], oletuksen_sha: str, repon_sha: str | None) -> Policy:
     tarkista_pakolliset(yhdistetty)
-    return Policy(
+    policy = Policy(
         kova=_kategoriat("kova", yhdistetty["deny"]["kova"]),
         pehmea=_kategoriat("pehmea", yhdistetty["deny"]["pehmea"]),
         kielletyt_uudet_polut=tuple(yhdistetty["kielletyt_uudet_polut"]),
@@ -118,6 +132,8 @@ def rakenna_policy(yhdistetty: dict[str, Any], oletuksen_sha: str, repon_sha: st
         oletuksen_sha=oletuksen_sha,
         repon_sha=repon_sha,
     )
+    tarkista_paallekkaisyydet(policy)
+    return policy
 
 
 def lataa_policy(repon_policy: Path | None, oletus: Path = OLETUSPOLICY) -> Policy:

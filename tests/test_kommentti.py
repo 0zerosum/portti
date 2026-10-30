@@ -2,7 +2,9 @@
 
 from typing import Any
 
-from portti.kommentti import TUNNISTE, kirjoita_tai_paivita, lue_konedata, renderoi
+from portti.kommentti import kirjoita_tai_paivita, lue_konedata, renderoi, tunniste
+
+TUNNISTE = tunniste("shadow")
 from tests.apu_gh import ValeGh
 
 
@@ -13,9 +15,11 @@ def evidence(verdict: str = "KOVA") -> dict[str, Any]:
         "verdict": verdict,
         "tila": "shadow",
         "head_sha": "abcdef1234567890",
+        "policy_lahde": "head",
         "hyvaksyttavissa_portaalla": [] if verdict == "KOVA" else ["S1", "S2", "S3"],
         "luokitus": {
             "tier": "T1a",
+            "puutteet": [],
             "rivit": 3,
             "tiedostoja": 1,
             "alueet": ["palvelin/laskenta"],
@@ -39,13 +43,19 @@ def test_renderointi_on_deterministinen_ja_sisaltaa_kentat() -> None:
     assert "kova · agenttiohjeet: `CLAUDE.md`" in teksti
     assert "✗ kova_deny" in teksti and "✓ koko" in teksti
     assert "[evidence-artefakti](https://example.com/artefakti)" in teksti
+    assert "| Policy | head |" in teksti
     assert "head `abcdef123456`" in teksti
 
 
 def test_konedata_luetaan_takaisin() -> None:
     teksti = renderoi(evidence("VAPAA"), None)
     konedata = lue_konedata(teksti)
-    assert konedata == {"verdict": "VAPAA", "tier": "T1a", "head_sha": "abcdef1234567890", "moottorin_versio": "0.1.0"}
+    assert konedata == {
+        "verdict": "VAPAA", "tier": "T1a", "head_sha": "abcdef1234567890", "moottorin_versio": "0.1.0",
+        "tila": "shadow", "policy_lahde": "head", "deny_kategoriat": [], "portaat": ["S1", "S2", "S3"], "puute": False,
+    }
+    kova = lue_konedata(renderoi(evidence("KOVA"), None))
+    assert kova is not None and kova["deny_kategoriat"] == ["kova:agenttiohjeet"] and kova["portaat"] == []
     assert "evidence-artefakti puuttuu" in teksti
     assert lue_konedata("ihmisen kommentti") is None
 
@@ -70,3 +80,13 @@ def test_sama_teksti_ei_aiheuta_kutsua() -> None:
     vale = ValeGh({"issues/5/comments": [[{"id": 42, "body": teksti}]]})
     assert kirjoita_tai_paivita(vale.api(), "omistaja/repo", 5, teksti) == "ennallaan"
     assert len(vale.kutsut) == 1
+
+
+def test_enforce_kommentti_on_oma_ja_merkitty() -> None:
+    enforce = evidence("KOVA") | {"tila": "enforce", "policy_lahde": "base"}
+    teksti = renderoi(enforce, None)
+    assert teksti.startswith(tunniste("enforce")) and tunniste("enforce") != TUNNISTE
+    assert "**KOVA** (enforce, esto ei toteutettu)" in teksti and "| Policy | base |" in teksti
+    assert lue_konedata(teksti) is not None
+    vale = ValeGh({"issues/5/comments": [[{"id": 42, "body": TUNNISTE + "\nshadow-kommentti"}]]})
+    assert kirjoita_tai_paivita(vale.api(), "omistaja/repo", 5, teksti) == "luotu"

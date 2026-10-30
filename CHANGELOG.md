@@ -1,5 +1,24 @@
 # Muutoshistoria
 
+## 0.3.0
+
+- Action ja CLI: syöte `policy_lahde` (head, base, auto). Enforce lukee policyn ja tapaukset base-haarasta,
+  shadow PR:n headista. Jos basessa ei ole policyä, enforce kaatuu ja shadow merkitsee kommenttiin "head (basessa
+  ei policy.yml-tiedostoa, luettu headista)". Evidenceen kenttä `policy_lahde`.
+- Enforce-tila ei enää kaadu "ei toteutettu": luentapolku on toteutettu, verdictin estävä osa ei. Enforce-kommentti
+  on oma kommenttinsa (tunniste sisältää tilan), joten shadow- ja enforce-ajo samassa PR:ssä eivät sekoitu.
+- Policy: allow-polku, joka leikkaa kova- tai pehmea-polun, on latausvirhe (T0-aukko). Virheilmoitus nimeää
+  polut ja `allow.laajenna_paitsi`-korjauksen. ei_laskennassa saa leikata deny-polkuja (generoidut tiedostot). Oletuksesta poistettu `ei_laskennassa_lukkotiedostot` (lukkotiedostot
+  lasketaan, ovat kova) ja allow-poikkeuksiin lisätty CLAUDE.md ja .claude/**.
+- Kommentin konedata laajennettu: tila, policy_lahde, deny-kategoriat, portaat, puute. Shadow-raportti lukee nämä.
+- `portti shadow-raportti`: useita `--repo`, ryhmittely base-haaran mukaan (main, feat/* ja feature/* yhdessä,
+  muut omanaan), draftit pudotetaan, per ryhmä mittarit, väärät KOVA/PEHMEÄ-osumat kategorioittain, jakauma
+  tiereittäin ja portaittain; `--json`.
+- Komentorivi jaettu jäsentimeen (cli.py) ja komentoihin (cli_komennot.py).
+- Oletuspolicyn kommentti ja README: kova-kategoria on neuvoa-antava; nimettyä katselmoijaa tai CODEOWNERS-pakkoa
+  ei oleteta, koska Free-tason yksityisrepossa niitä ei ole. Invarianttitestit: base-luku ei kevene PR:n omasta
+  policymuutoksesta; deny-literaali `.md`-tiedosto oletuksen allow-listalla on latausvirhe.
+
 ## 0.2.0
 
 - Action: `PYTHONSAFEPATH=1` kaikissa Python-askelissa, jotta PR:n checkoutin tiedostot eivät varjosta moottorin moduuleja.
