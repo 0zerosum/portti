@@ -59,9 +59,7 @@ def _portti_rivit(portit: list[dict[str, Any]]) -> list[str]:
 
 
 def _otsikko(evidence: dict[str, Any]) -> str:
-    tila = evidence.get("tila", "shadow")
-    kuvaus = "enforce, esto ei toteutettu" if tila == "enforce" else tila
-    return f"## Portti: **{evidence['verdict']}** ({kuvaus})"
+    return f"## Portti: **{evidence['verdict']}** ({evidence.get('tila', 'shadow')})"
 
 
 def renderoi(evidence: dict[str, Any], artefakti_url: str | None) -> str:

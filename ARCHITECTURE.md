@@ -24,7 +24,7 @@ pinnatulla sha:lla.
 | `portti/shadow_muotoilu.py` | shadow-raportin markdown- ja JSON-tuloste |
 | `portti/tapaukset.py` | kuluttajarepon regressiotapaukset |
 | `portti/cli.py` | komentorivin jäsennin ja ohjaus |
-| `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `tarkista-tapaukset`, `shadow-raportti`, `kommentti` |
+| `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `kommentti`, `esto`, `tarkista-tapaukset`, `shadow-raportti` |
 
 Riippuvuussuunta: `cli` → `cli_komennot` → (`arviointi`, `kommentti`, `shadow`,
 `shadow_muotoilu`, `tapaukset`, `policy_lahde`) → (`policy`, `git_diff`, `invariantit`,
@@ -42,7 +42,10 @@ kommentit eivät sisällä kategorioita eivätkä portaita; raportti näyttää 
 
 Policy ja tapaukset luetaan oletuksena base-shasta kaikissa tiloissa (`policy_lahde: base`);
 head vain eksplisiittisesti, auto tilan mukaan. Enforce ilman base-policyä kaatuu; shadow
-lukee headista ja merkitsee sen evidenceen ja kommenttiin. Enforcen estävä osa (verdict kaataa ajon) on tarkoituksella toteuttamatta.
+lukee headista ja merkitsee sen evidenceen ja kommenttiin. Enforce-tilassa actionin viimeinen askel (`esto`) palauttaa 1, kun verdict on
+PUUTE, KOVA tai LIIAN-ISO; kommentti ja artefakti on jo kirjoitettu. Shadow ei kaada koskaan.
+Punainen check on neuvoa-antava: moottori ei oleta pakollisia checkejä eikä branch
+protectionia, koska Free-tason yksityisrepossa niitä ei ole.
 
 ## Datamalli
 

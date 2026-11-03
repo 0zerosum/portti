@@ -17,6 +17,7 @@ LIIAN_ISO = "LIIAN-ISO"
 PEHMEA = "PEHMEÄ"
 VAPAA = "VAPAA"
 VERDICTIT = (PUUTE, KOVA, LIIAN_ISO, PEHMEA, VAPAA)
+ESTAVAT = (PUUTE, KOVA, LIIAN_ISO)
 
 PORTAAT = ("S0", "S1", "S2", "S3")
 TIERIT_PORTAITTAIN = (TIER_T0, "T1a", "T1b", "T1c")
@@ -92,6 +93,11 @@ def _paattele(portit: dict[str, PortinTulos]) -> str:
     if not portit["pehmea_deny"].ok:
         return PEHMEA
     return VAPAA
+
+
+def estaa(verdict: str) -> bool:
+    """Enforce-tilassa estävä verdict kaataa actionin esto-askeleen."""
+    return verdict in ESTAVAT
 
 
 def hyvaksyttavissa_portaalla(verdict: str, tier: str) -> list[str]:

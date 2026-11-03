@@ -1,4 +1,4 @@
-"""Komentorivi: arvioi, kommentti, tarkista-tapaukset, shadow-raportti. Toteutukset cli_komennot.py:ssä."""
+"""Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti. Toteutukset cli_komennot.py:ssä."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from portti.cli_komennot import komento_arvioi, komento_kommentti, komento_shadow, komento_tapaukset
+from portti.cli_komennot import komento_arvioi, komento_esto, komento_kommentti, komento_shadow, komento_tapaukset
 from portti.github_api import GitHubApi
 from portti.policy_lahde import LAHTEET, TILAT
 from portti.version import VERSIO
@@ -37,6 +37,11 @@ def _lisaa_kommentti(alikomennot: argparse._SubParsersAction) -> None:  # type: 
     komento.add_argument("--artefakti-url", default=None)
 
 
+def _lisaa_esto(alikomennot: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    komento = alikomennot.add_parser("esto", help="enforce: palauta 1, jos evidencen verdict estää")
+    komento.add_argument("--evidence", type=Path, required=True)
+
+
 def _lisaa_tapaukset(alikomennot: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     komento = alikomennot.add_parser("tarkista-tapaukset", help="aja repon regressiotapaukset")
     komento.add_argument("tapaukset", type=Path)
@@ -60,6 +65,7 @@ def rakenna_jasennin() -> argparse.ArgumentParser:
     alikomennot = jasennin.add_subparsers(dest="komento", required=True)
     _lisaa_arvioi(alikomennot)
     _lisaa_kommentti(alikomennot)
+    _lisaa_esto(alikomennot)
     _lisaa_tapaukset(alikomennot)
     _lisaa_shadow(alikomennot)
     return jasennin
@@ -72,6 +78,8 @@ def main(argv: list[str] | None = None, api: GitHubApi | None = None) -> int:
         return komento_arvioi(argumentit)
     if argumentit.komento == "kommentti":
         return komento_kommentti(argumentit, api)
+    if argumentit.komento == "esto":
+        return komento_esto(argumentit)
     if argumentit.komento == "tarkista-tapaukset":
         return komento_tapaukset(argumentit)
     return komento_shadow(argumentit, api)

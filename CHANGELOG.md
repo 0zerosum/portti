@@ -6,8 +6,12 @@
   luetaan base-haarasta, jotta PR ei voi keventää omaa luokitustaan. `head` vain eksplisiittisesti (policyn
   kehitys-PR:t). Jos basessa ei ole policyä, enforce kaatuu ja shadow merkitsee kommenttiin "head (basessa
   ei policy.yml-tiedostoa, luettu headista)". Evidenceen kenttä `policy_lahde`.
-- Enforce-tila ei enää kaadu "ei toteutettu": luentapolku on toteutettu, verdictin estävä osa ei. Enforce-kommentti
-  on oma kommenttinsa (tunniste sisältää tilan), joten shadow- ja enforce-ajo samassa PR:ssä eivät sekoitu.
+- Enforce-tila: uusi komento `portti esto --evidence <json>` palauttaa 1, kun tila on enforce ja verdict on PUUTE,
+  KOVA tai LIIAN-ISO; action ajaa sen viimeisenä askeleena kommentin ja artefaktin jälkeen. Shadow ei kaada koskaan.
+  Punainen check on neuvoa-antava: moottori, README ja workflow-mallit eivät oleta pakollisia checkejä, branch
+  protectionia eivätkä CODEOWNERS-pakkoa. Enforce-kommentti on oma kommenttinsa (tunniste sisältää tilan).
+  README kuvaa `pull_request`-tapahtuman rajoitteen: PR voi poistaa ajon tai vaihtaa shan, shadow-raportti näyttää sen.
+- Moottorin oma workflow ajaa yhden jobin enforce-tilassa.
 - Policy: allow-polku, joka leikkaa kova- tai pehmea-polun, on latausvirhe (T0-aukko). Virheilmoitus nimeää
   polut ja `allow.laajenna_paitsi`-korjauksen. ei_laskennassa saa leikata deny-polkuja (generoidut tiedostot). Oletuksesta poistettu `ei_laskennassa_lukkotiedostot` (lukkotiedostot
   lasketaan, ovat kova) ja allow-poikkeuksiin lisätty CLAUDE.md ja .claude/**.

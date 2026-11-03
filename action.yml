@@ -2,7 +2,9 @@ name: Portti
 description: >-
   Deterministinen katselmointiportti. Luokittelee PR:n diffin repon policyn mukaan,
   kirjoittaa evidence-JSONin artefaktiksi ja yhden päivittyvän PR-kommentin.
-  Shadow-tilassa ei hyväksy, ei pyydä muutoksia eikä estä mergeä.
+  Shadow-tilassa ei hyväksy, ei pyydä muutoksia eikä kaada ajoa. Enforce-tilassa estävä
+  verdict (PUUTE, KOVA, LIIAN-ISO) kaataa viimeisen askeleen kommentin jälkeen; punainen
+  check on neuvoa-antava, koska Free-tason yksityisrepossa ei ole pakollisia checkejä.
 
 inputs:
   policy_polku:
@@ -15,8 +17,8 @@ inputs:
     default: .portti/tapaukset.yml
   tila:
     description: >-
-      shadow (PR:n oma policy, vain kommentti) tai enforce (policy base-haarasta; verdictin
-      estävä osa ei toteutettu, eli ei estä vielä).
+      shadow (vain kommentti, ei kaada ajoa) tai enforce (estävä verdict kaataa esto-askeleen
+      kommentin ja artefaktin jälkeen). Policyn lähde valitaan erikseen (policy_lahde).
     required: false
     default: shadow
   policy_lahde:
@@ -124,3 +126,10 @@ runs:
       run: |
         python -m portti.cli tarkista-tapaukset "$TAPAUKSET_POLKU" --policy "$POLICY_POLKU" \
           --lahde "$POLICY_LAHDE" --tila "$TILA" --base "$BASE_SHA"
+
+    - name: Enforce (estävä verdict kaataa ajon; shadow ei koskaan)
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}
+        PYTHONSAFEPATH: "1"
+      run: python -m portti.cli esto --evidence portti-evidence.json

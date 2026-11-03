@@ -94,18 +94,20 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
 |---|---|---|
 | `policy_polku` | `.portti/policy.yml` | repon policy |
 | `tapaukset_polku` | `.portti/tapaukset.yml` | regressiotapaukset; ajetaan, jos tiedosto on olemassa |
-| `tila` | `shadow` | `shadow` lukee PR:n policyn; `enforce` lukee base-haaran policyn, mutta ei vielä estä |
+| `tila` | `shadow` | `shadow` vain kommentoi; `enforce` kaataa ajon estävästä verdictistä (PUUTE, KOVA, LIIAN-ISO) |
 | `policy_lahde` | `base` | `base` (base-haaran policy ja tapaukset), `head` (PR:n oma, vain eksplisiittisesti) tai `auto` (shadow → head, enforce → base) |
 | `github_token` | – | PR:n tilan luku ja kommentin kirjoitus |
 | `python_versio` | `3.11` | moottorin tulkki |
 
 Shadow-tilassa action ei hyväksy, ei pyydä muutoksia eikä palauta verdictistä
-estävää exit-koodia. Evidence ladataan artefaktiksi `portti-evidence-pr<numero>`.
+estävää exit-koodia. Enforce-tilassa viimeinen askel (`portti esto`) palauttaa 1, kun
+verdict on PUUTE, KOVA tai LIIAN-ISO; kommentti ja artefakti on silloin jo kirjoitettu.
+Evidence ladataan artefaktiksi `portti-evidence-pr<numero>`.
 Regressiotapausten poikkeama sen sijaan kaataa askeleen, kuten rikkoutunut testi.
 Kaikki Python-askeleet ajetaan `PYTHONSAFEPATH=1`, jotta PR:n checkoutin tiedostot
 eivät varjosta moottorin moduuleja.
 
-## Enforce-valmius
+## Enforce
 
 Policy ja tapaukset luetaan oletuksena base-haaran versiosta
 (`git show <base-sha>:.portti/policy.yml`), jotta PR ei voi muuttaa sääntöjä, joilla se
@@ -114,9 +116,17 @@ kehitys-PR:ille. Jos basessa ei ole policyä, enforce kaatuu näkyvästi ja shad
 headista merkinnällä kommentissa. Enforce- ja shadow-ajo kirjoittavat kumpikin oman
 kommenttinsa.
 
-Enforce ei vielä estä mitään: verdictin estävä osa on toteuttamatta. Kun se toteutetaan,
-estäminen vaatii lisäksi GitHubissa required status checkin ja branch protectionin
-base-haaralle. Ilman niitä PR voi poistaa workflow-tiedoston, eikä moottori voi sitä estää.
+Enforce-tilassa estävä verdict tekee checkistä punaisen. Check on neuvoa-antava:
+Free-tason yksityisrepossa ei ole pakollisia checkejä eikä branch protectionia, joten
+GitHub ei estä mergeä, vaan katselmoija päättää sen punaisen checkin ja kommentin
+perusteella. Moottori ei oleta näitä asetuksia mistään tasosta riippumatta.
+
+Workflow ajetaan `pull_request`-tapahtumalla, joten workflow-tiedosto tulee PR:n
+headista. PR voi siis poistaa Portti-ajon, vaihtaa moottorin shan tai asettaa
+`policy_lahde: head`; moottori ei voi sitä estää. Nämä polut (`.github/**` ja
+`.github/workflows/portti.yml`) ovat oletuksen kova-kategorioissa `ci` ja `portti_itse`,
+ja `portti shadow-raportti` näyttää jälkikäteen PR:t, joista portin kommentti puuttuu.
+Katselmoija tarkistaa, että check on ajettu ja kommentti on PR:n headista.
 
 ## Päällekkäisyyssääntö
 

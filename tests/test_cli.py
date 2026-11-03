@@ -40,7 +40,7 @@ def test_arvioi_draft_on_puute_ja_tulostaa_jsonin(tmp_path: Path, capsys: pytest
     assert json.loads(tuloste.out)["verdict"] == "PUUTE"
 
 
-def test_enforce_lukee_basesta_eika_esta(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_enforce_lukee_basesta_ja_arvioi_palauttaa_nollan(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     repo, base = perusrepo(tmp_path / "repo")
     repo.git("checkout", "-q", "main")
     repo.kirjoita(".portti/policy.yml", "invarianttitestit: []\n")
@@ -50,9 +50,28 @@ def test_enforce_lukee_basesta_eika_esta(tmp_path: Path, capsys: pytest.CaptureF
     head = repo.commit()
     koodi = main(["arvioi", "--base", main_sha, "--head", head, "--repo-polku", str(repo.juuri), "--tila", "enforce"])
     tuloste = capsys.readouterr()
-    assert koodi == 0 and "esto ei toteutettu" in tuloste.err
+    assert koodi == 0 and "kaataa esto-askeleen" in tuloste.err
     evidence = json.loads(tuloste.out)
     assert evidence["tila"] == "enforce" and evidence["policy_lahde"] == "base" and evidence["verdict"] == "VAPAA"
+
+
+def _evidence_tiedosto(tmp_path: Path, nimi: str, tila: str, kova: bool) -> Path:
+    repo, base = perusrepo(tmp_path / nimi)
+    repo.kirjoita("CLAUDE.md" if kova else "docs/ohje.md", "lisays\n")
+    head = repo.commit()
+    polku = tmp_path / f"{nimi}.json"
+    main(["arvioi", "--base", base, "--head", head, "--repo-polku", str(repo.juuri), "--policy-lahde", "head",
+          "--policy", str(tmp_path / "ei-ole.yml"), "--tila", tila, "--evidence", str(polku)])
+    return polku
+
+
+def test_esto_kaataa_vain_enforce_tilan_estavan_verdictin(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    enforce_kova = _evidence_tiedosto(tmp_path, "enforce-kova", "enforce", kova=True)
+    assert main(["esto", "--evidence", str(enforce_kova)]) == 1
+    assert "KOVA estää" in capsys.readouterr().err
+    assert main(["esto", "--evidence", str(_evidence_tiedosto(tmp_path, "enforce-vapaa", "enforce", kova=False))]) == 0
+    assert main(["esto", "--evidence", str(_evidence_tiedosto(tmp_path, "shadow-kova", "shadow", kova=True))]) == 0
+    assert "ei estoa" in capsys.readouterr().err
 
 
 def test_kommentti_komento_luo_kommentin(tmp_path: Path) -> None:

@@ -18,6 +18,7 @@ from portti.policy_lahde import PolicyLahde, valmistele_tiedosto
 from portti.shadow import kokoa_shadow_raportti
 from portti.shadow_muotoilu import muotoile_shadow_raportti, shadow_raportti_jsoniksi
 from portti.tapaukset import aja_tapaukset, lue_tapaukset, muotoile_tulokset
+from portti.verdict import estaa
 
 
 def _tyokansio() -> Path:
@@ -48,7 +49,22 @@ def komento_arvioi(argumentit: argparse.Namespace) -> int:
     print(f"portti: {arvio.verdict.verdict} tier={arvio.luokitus.tier} "
           f"portaat={','.join(arvio.verdict.hyvaksyttavissa_portaalla) or '-'} policy={lahde.merkinta}", file=sys.stderr)
     if argumentit.tila == "enforce":
-        print("portti: enforce lukee policyn basesta; esto ei toteutettu, verdict ei vaikuta exit-koodiin", file=sys.stderr)
+        print("portti: enforce: estävä verdict (PUUTE, KOVA, LIIAN-ISO) kaataa esto-askeleen", file=sys.stderr)
+    return 0
+
+
+def komento_esto(argumentit: argparse.Namespace) -> int:
+    """Enforce-tilan viimeinen askel: estävä verdict palauttaa 1. Shadow ei estä koskaan."""
+    evidence = lue_evidence(argumentit.evidence)
+    tila = evidence.get("tila", "shadow")
+    verdict = str(evidence["verdict"])
+    if tila != "enforce":
+        print(f"portti: esto: tila {tila}, ei estoa ({verdict})", file=sys.stderr)
+        return 0
+    if estaa(verdict):
+        print(f"portti: esto: {verdict} estää; neuvoa-antava ilman GitHubin pakollista checkiä", file=sys.stderr)
+        return 1
+    print(f"portti: esto: {verdict} ei estä", file=sys.stderr)
     return 0
 
 

@@ -86,7 +86,7 @@ def test_enforce_kommentti_on_oma_ja_merkitty() -> None:
     enforce = evidence("KOVA") | {"tila": "enforce", "policy_lahde": "base"}
     teksti = renderoi(enforce, None)
     assert teksti.startswith(tunniste("enforce")) and tunniste("enforce") != TUNNISTE
-    assert "**KOVA** (enforce, esto ei toteutettu)" in teksti and "| Policy | base |" in teksti
+    assert "**KOVA** (enforce)" in teksti and "| Policy | base |" in teksti
     assert lue_konedata(teksti) is not None
     vale = ValeGh({"issues/5/comments": [[{"id": 42, "body": TUNNISTE + "\nshadow-kommentti"}]]})
     assert kirjoita_tai_paivita(vale.api(), "omistaja/repo", 5, teksti) == "luotu"
