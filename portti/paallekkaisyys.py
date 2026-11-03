@@ -1,9 +1,11 @@
 """Päällekkäisyystarkistus: allow-polku ei saa leikata deny-polkua.
 
-Miksi: pehmeä polku, joka on myös T0-listalla, saa verdictin PEHMEÄ tierillä T0 ja olisi
-hyväksyttävissä kaikilla portailla. Tarkistus on mallitasolla: sama literaalipolku tai glob, joka
-sisältyy toiseen. Poikkeuslista (`paitsi`) poistaa leikkauksen. Kutsuja päättää, mitkä säännöt
-tarkistetaan (policy.py: vain allow).
+Miksi: pehmeä polku, joka on myös T0-listalla, on ristiriitainen policy, ja virhe latauksessa
+on selvempi kuin hiljainen tulkinta. Tarkistus on mallitasolla: sama literaalipolku tai glob, joka
+sisältyy toiseen; kansio-glob ja pääte-glob (`kansio/**` ja `*.md`) eivät leikkaa mallitasolla.
+Siksi arviointi sulkee aukon erikseen: deny-osuma ei koskaan ole vapaa (luokittelu.py), eikä
+PEHMEÄ ole hyväksyttävissä millään portaalla (verdict.py). Poikkeuslista (`paitsi`) poistaa
+leikkauksen. Kutsuja päättää, mitkä säännöt tarkistetaan (policy.py: vain allow).
 """
 
 from __future__ import annotations

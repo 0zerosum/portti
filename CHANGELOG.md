@@ -10,6 +10,9 @@
 - Policy: allow-polku, joka leikkaa kova- tai pehmea-polun, on latausvirhe (T0-aukko). Virheilmoitus nimeää
   polut ja `allow.laajenna_paitsi`-korjauksen. ei_laskennassa saa leikata deny-polkuja (generoidut tiedostot). Oletuksesta poistettu `ei_laskennassa_lukkotiedostot` (lukkotiedostot
   lasketaan, ovat kova) ja allow-poikkeuksiin lisätty CLAUDE.md ja .claude/**.
+- Arviointi: deny-osuma (kova tai pehmea) ei koskaan ole vapaa tiedosto, vaikka polku osuisi allow-globiin tai
+  testimalliin, ja PEHMEÄ ei ole hyväksyttävissä millään portaalla. Sulkee aukon, jota päällekkäisyystarkistus ei
+  näe mallitasolla (kansio-glob `kansio/**` vastaan pääte-glob `*.md`). Invarianttitestit keksityin poluin.
 - Kommentin konedata laajennettu: tila, policy_lahde, deny-kategoriat, portaat, puute. Shadow-raportti lukee nämä.
 - `portti shadow-raportti`: useita `--repo`, ryhmittely base-haaran mukaan (main, feat/* ja feature/* yhdessä,
   muut omanaan), draftit pudotetaan, per ryhmä mittarit, väärät KOVA/PEHMEÄ-osumat kategorioittain, jakauma

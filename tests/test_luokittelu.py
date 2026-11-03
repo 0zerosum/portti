@@ -152,3 +152,31 @@ def test_vain_public_muutos_ei_ole_t0(tmp_path: Path, policy: Policy) -> None:
     head = repo.commit()
     luokitus = luokittele(repo.juuri, base, head, policy)
     assert luokitus.substantiiviset == [] and luokitus.tier == "T1a"
+
+
+def test_deny_osuma_ei_ole_vapaa_vaikka_allow_glob_osuu(tmp_path: Path) -> None:
+    """Invariantti: pehmeän kansion .md-tiedosto osuu oletuksen allow-globiin *.md, mutta ei ole T0."""
+    repon_policy = tmp_path / "repo-policy.yml"
+    repon_policy.write_text(
+        "deny:\n  pehmea:\n    avustaja:\n      polut: ['palvelin/avustaja/**']\n", encoding="utf-8"
+    )
+    policy = lataa_policy(repon_policy)
+    repo, base = perusrepo(tmp_path / "repo")
+    repo.kirjoita("palvelin/avustaja/ohje.md", "ohje\nlisays\n")
+    head = repo.commit()
+    luokitus = luokittele(repo.juuri, base, head, policy)
+    assert [osuma.kategoria for osuma in luokitus.osumat_tasolla("pehmea")] == ["avustaja"]
+    assert luokitus.substantiiviset == [] and luokitus.tier == "T1a"
+
+
+def test_deny_osuma_testitiedostoon_ei_ole_vapaa(tmp_path: Path) -> None:
+    repon_policy = tmp_path / "repo-policy.yml"
+    repon_policy.write_text(
+        "deny:\n  kova:\n    kielletyt_testit:\n      polut: ['tests/kielletty/**']\n", encoding="utf-8"
+    )
+    policy = lataa_policy(repon_policy)
+    repo, base = perusrepo(tmp_path / "repo")
+    repo.kirjoita("tests/kielletty/test_uusi.py", luo_testitiedosto(2))
+    head = repo.commit()
+    luokitus = luokittele(repo.juuri, base, head, policy)
+    assert luokitus.tier != "T0" and luokitus.osumat_tasolla("kova") != []

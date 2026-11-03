@@ -129,9 +129,11 @@ lisää 'fixtures/henkilot.json' listaan allow.laajenna_paitsi
 ```
 
 Tarkistus on mallitasolla: sama literaalipolku tai glob, joka sisältyy toiseen.
-`paitsi`-lista poistaa leikkauksen. ei_laskennassa-lista saa leikata deny-polkuja:
-generoitu tiedosto deny-kansiossa jää laskennasta pois, mutta deny osuu siihen silti,
-eikä T0 synny ilman allow-osumaa.
+Kansio-glob ja pääte-glob (`kansio/**` ja `*.md`) eivät leikkaa mallitasolla, joten
+arviointi sulkee aukon erikseen: tiedosto, johon deny osuu, ei koskaan ole vapaa, ja
+PEHMEÄ ei ole hyväksyttävissä millään portaalla. `paitsi`-lista poistaa leikkauksen.
+ei_laskennassa-lista saa leikata deny-polkuja: generoitu tiedosto deny-kansiossa jää
+laskennasta pois, mutta deny osuu siihen silti, eikä T0 synny ilman allow-osumaa.
 
 ## Muut komennot
 

@@ -1,7 +1,8 @@
 """Verdict-sääntö koodissa, ei tulkintaa.
 
 Järjestys: PUUTE > KOVA > LIIAN-ISO > PEHMEÄ > VAPAA.
-Portaat: S0 hyväksyy T0:n, S1 lisäksi T1a:n, S2 T1b:n, S3 T1c:n.
+Portaat: S0 hyväksyy T0:n, S1 lisäksi T1a:n, S2 T1b:n, S3 T1c:n. Vain VAPAA on
+hyväksyttävissä; PEHMEÄ ei millään portaalla, koska deny-osuma ei koskaan ole vapaa.
 """
 
 from __future__ import annotations
@@ -98,8 +99,6 @@ def hyvaksyttavissa_portaalla(verdict: str, tier: str) -> list[str]:
     if verdict == VAPAA and tier in TIERIT_PORTAITTAIN:
         alin = TIERIT_PORTAITTAIN.index(tier)
         return list(PORTAAT[alin:])
-    if verdict == PEHMEA and tier == TIER_T0:
-        return list(PORTAAT)
     return []
 
 
