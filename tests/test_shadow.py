@@ -16,11 +16,17 @@ from tests.apu_gh import ValeGh
 
 
 def portin_kommentti(verdict: str, head_sha: str, tier: str = "T1a", kategoriat: list[str] | None = None,
-                     portaat: list[str] | None = None) -> dict[str, object]:
+                     portaat: list[str] | None = None, tila: str = "shadow") -> dict[str, object]:
     konedata = {"verdict": verdict, "tier": tier, "head_sha": head_sha, "moottorin_versio": "0.3.0",
-                "deny_kategoriat": kategoriat or [], "portaat": portaat or []}
-    teksti = tunniste("shadow") + "\n" + KONEDATA_ALKU + json.dumps(konedata) + KONEDATA_LOPPU + "\nrunko\n"
+                "deny_kategoriat": kategoriat or [], "portaat": portaat or [], "tila": tila}
+    teksti = tunniste(tila) + "\n" + KONEDATA_ALKU + json.dumps(konedata) + KONEDATA_LOPPU + "\nrunko\n"
     return {"id": 1, "body": teksti}
+
+
+def vanha_kommentti(verdict: str, tier: str, head_sha: str) -> dict[str, object]:
+    """Konedata ennen 0.3.0:aa: ei tilaa, kategorioita eikä portaita."""
+    konedata = {"verdict": verdict, "tier": tier, "head_sha": head_sha, "moottorin_versio": "0.2.0"}
+    return {"id": 1, "body": tunniste("shadow") + "\n" + KONEDATA_ALKU + json.dumps(konedata) + KONEDATA_LOPPU + "\n"}
 
 
 def pr(numero: int, base: str, merged: bool, head: str, draft: bool = False) -> dict[str, object]:
@@ -84,13 +90,30 @@ def test_markdown_ja_json() -> None:
     assert data["pudotetut_draftit"] == 1
 
 
-def test_vanha_konedata_ilman_kategorioita() -> None:
-    vanha = {"id": 1, "body": tunniste("shadow") + "\n" + KONEDATA_ALKU
-             + json.dumps({"verdict": "KOVA", "tier": "T1a", "head_sha": "aaa", "moottorin_versio": "0.2.0"})
-             + KONEDATA_LOPPU + "\n"}
-    vale = ValeGh({"pr list": [pr(1, "main", True, "aaa")], "issues/1/comments": [[vanha]]})
+def test_vanha_konedata_ilman_kategorioita_ja_portaita() -> None:
+    vale = ValeGh({
+        "pr list": [pr(1, "main", True, "aaa"), pr(2, "main", True, "bbb")],
+        "issues/1/comments": [[vanha_kommentti("KOVA", "T1a", "aaa")]],
+        "issues/2/comments": [[vanha_kommentti("VAPAA", "T1b", "bbb")]],
+    })
     raportti = kokoa_shadow_raportti(vale.api(), ["omistaja/eka"], "2026-10-01")
-    assert raportti.ryhmat["main"].vaarat_osumat_kategorioittain() == {"ei tiedossa": 1}
+    ryhma = raportti.ryhmat["main"]
+    assert ryhma.vaarat_osumat_kategorioittain() == {"ei tiedossa": 1}
+    assert [rivi.portaat for rivi in ryhma.rivit] == [(), ("S2", "S3")], "portaat johdetaan verdictistä ja tieristä"
+    assert ryhma.jakauma_portaittain() == {"S0": 0, "S1": 0, "S2": 1, "S3": 1, "ei millään": 1}
+
+
+def test_shadow_ja_enforce_kommentti_rinnakkain_headiin_tasmaava_voittaa() -> None:
+    """Repo vaihtoi tilaa PR:n ollessa auki: vanha shadow-kommentti jää, enforce-kommentti on headista."""
+    vale = ValeGh({
+        "pr list": [pr(1, "main", True, "uusi"), pr(2, "main", True, "uusin")],
+        "issues/1/comments": [[portin_kommentti("KOVA", "vanha"), portin_kommentti("VAPAA", "uusi", tila="enforce")]],
+        "issues/2/comments": [[portin_kommentti("KOVA", "vanha"), portin_kommentti("VAPAA", "uusi", tila="enforce")]],
+    })
+    raportti = kokoa_shadow_raportti(vale.api(), ["omistaja/eka"], "2026-10-01")
+    tasmaava, ei_tasmaava = raportti.ryhmat["main"].rivit
+    assert tasmaava.verdict == "VAPAA" and tasmaava.lopputulos == MERGETTY_MUUTTAMATTA
+    assert ei_tasmaava.verdict == "VAPAA" and ei_tasmaava.lopputulos == MERGETTY_MUUTOSTEN_JALKEEN, "viimeisin, kun mikään ei täsmää"
 
 
 def test_haku_kayttaa_alkaen_paivaa() -> None:

@@ -1,8 +1,10 @@
 """Shadow-raportin data: portin verdict vs. PR:n lopputulos, ryhmiteltynä base-haaran mukaan.
 
 Evidence luetaan kommentin konedatasta: se säilyy PR:n mukana ja on sama jokaisella lukukerralla,
-toisin kuin artefakti, joka vanhenee. Vanhemmat kommentit (ennen 0.3.0) eivät sisällä kategorioita
-eivätkä portaita; ne näkyvät raportissa tyhjinä. Ei tallenna mitään.
+toisin kuin artefakti, joka vanhenee. PR:llä voi olla shadow- ja enforce-kommentti rinnakkain
+(repo vaihtoi tilaa PR:n ollessa auki): PR:n headiin täsmäävä kommentti menee edelle, muuten
+viimeisin. Vanhemmat kommentit (ennen 0.3.0) eivät sisällä kategorioita (raportissa "ei tiedossa");
+portaat johdetaan verdictistä ja tieristä. Ei tallenna mitään.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from typing import Any
 
 from portti.github_api import GitHubApi
 from portti.kommentti import lue_konedata
-from portti.verdict import KOVA, PEHMEA, PORTAAT, VAPAA
+from portti.verdict import KOVA, PEHMEA, PORTAAT, VAPAA, hyvaksyttavissa_portaalla
 
 MERGETTY_MUUTTAMATTA = "mergetty muuttamatta"
 MERGETTY_MUUTOSTEN_JALKEEN = "mergetty muutosten jälkeen"
@@ -92,12 +94,21 @@ def ryhma_haaralle(base_haara: str) -> str:
     return base_haara
 
 
-def _portin_konedata(kommentit: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for kommentti in kommentit:
-        konedata = lue_konedata(str(kommentti.get("body", "")))
-        if konedata is not None:
+def _portin_konedata(kommentit: list[dict[str, Any]], head_sha: str | None) -> dict[str, Any] | None:
+    """PR:n headiin täsmäävä portin kommentti; muuten viimeisin. Kommentit tulevat luontijärjestyksessä."""
+    loydetyt = [konedata for konedata in (lue_konedata(str(kommentti.get("body", ""))) for kommentti in kommentit)
+                if konedata is not None]
+    for konedata in reversed(loydetyt):
+        if konedata.get("head_sha") == head_sha:
             return konedata
-    return None
+    return loydetyt[-1] if loydetyt else None
+
+
+def _portaat(konedata: dict[str, Any]) -> tuple[str, ...]:
+    """Konedatan portaat; ennen 0.3.0 kirjoitetuista johdetaan verdictistä ja tieristä."""
+    if "portaat" in konedata:
+        return tuple(konedata["portaat"])
+    return tuple(hyvaksyttavissa_portaalla(str(konedata.get("verdict")), str(konedata.get("tier"))))
 
 
 def _lopputulos(pr: dict[str, Any], konedata: dict[str, Any] | None) -> str:
@@ -118,7 +129,7 @@ def _rivi(repo: str, pr: dict[str, Any], konedata: dict[str, Any] | None) -> Sha
         verdict=konedata.get("verdict") if konedata else None,
         tier=konedata.get("tier") if konedata else None,
         kategoriat=tuple(konedata.get("deny_kategoriat", [])) if konedata else (),
-        portaat=tuple(konedata.get("portaat", [])) if konedata else (),
+        portaat=_portaat(konedata) if konedata else (),
         lopputulos=_lopputulos(pr, konedata),
     )
 
@@ -131,7 +142,7 @@ def kokoa_shadow_raportti(api: GitHubApi, repot: list[str], alkaen: str) -> Shad
             if pr.get("isDraft"):
                 draftit += 1
                 continue
-            konedata = _portin_konedata(api.hae_kommentit(repo, int(pr["number"])))
+            konedata = _portin_konedata(api.hae_kommentit(repo, int(pr["number"])), pr.get("headRefOid"))
             rivi = _rivi(repo, pr, konedata)
             ryhmat.setdefault(ryhma_haaralle(rivi.base_haara), ShadowRyhma(ryhma_haaralle(rivi.base_haara))).rivit.append(rivi)
     jarjestetyt = dict(sorted(ryhmat.items(), key=lambda pari: (pari[0] != RYHMA_MAIN, pari[0] != RYHMA_FEAT, pari[0])))

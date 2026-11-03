@@ -35,8 +35,10 @@ Riippuvuussuunta: `cli` → `cli_komennot` → (`arviointi`, `kommentti`, `shado
 Shadow-raportti lukee PR-kommentin konedatan (HTML-kommentti JSONina), ei artefaktia.
 Perustelu: kommentti säilyy PR:n mukana ja on sama jokaisella lukukerralla; artefakti vanhenee
 (90 päivää) ja sen lataus vaatii ajon tunnisteen. Konedata sisältää verdictin, tierin, head-shan,
-versiot, tilan, policyn lähteen, deny-kategoriat, portaat ja puute-lipun. Ennen 0.3.0 kirjoitetut
-kommentit eivät sisällä kategorioita eivätkä portaita; raportti näyttää ne tyhjinä.
+versiot, tilan, policyn lähteen, deny-kategoriat, portaat ja puute-lipun. PR:llä voi olla shadow- ja
+enforce-kommentti rinnakkain, kun repo vaihtoi tilaa PR:n ollessa auki: raportti valitsee PR:n headiin
+täsmäävän kommentin, muuten viimeisimmän. Ennen 0.3.0 kirjoitetut kommentit eivät sisällä kategorioita
+("ei tiedossa") eivätkä portaita; portaat johdetaan verdictistä ja tieristä.
 
 ## Policyn lähde
 

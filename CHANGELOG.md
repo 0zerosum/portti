@@ -18,7 +18,9 @@
 - Arviointi: deny-osuma (kova tai pehmea) ei koskaan ole vapaa tiedosto, vaikka polku osuisi allow-globiin tai
   testimalliin, ja PEHMEÄ ei ole hyväksyttävissä millään portaalla. Sulkee aukon, jota päällekkäisyystarkistus ei
   näe mallitasolla (kansio-glob `kansio/**` vastaan pääte-glob `*.md`). Invarianttitestit keksityin poluin.
-- Kommentin konedata laajennettu: tila, policy_lahde, deny-kategoriat, portaat, puute. Shadow-raportti lukee nämä.
+- Kommentin konedata laajennettu: tila, policy_lahde, deny-kategoriat, portaat, puute. Shadow-raportti lukee nämä;
+  vanhasta (0.2.0) konedatasta portaat johdetaan verdictistä ja tieristä, kategoriat näkyvät "ei tiedossa".
+  Kun PR:llä on shadow- ja enforce-kommentti rinnakkain, raportti valitsee PR:n headiin täsmäävän, muuten viimeisimmän.
 - `portti shadow-raportti`: useita `--repo`, ryhmittely base-haaran mukaan (main, feat/* ja feature/* yhdessä,
   muut omanaan), draftit pudotetaan, per ryhmä mittarit, väärät KOVA/PEHMEÄ-osumat kategorioittain, jakauma
   tiereittäin ja portaittain; `--json`.
