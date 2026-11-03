@@ -12,7 +12,9 @@ inputs:
     required: false
     default: .portti/policy.yml
   tapaukset_polku:
-    description: Repon regressiotapaukset; ajetaan, jos tiedosto on olemassa. Poikkeama kaataa askeleen.
+    description: >-
+      Repon regressiotapaukset; ajetaan, jos tiedosto on olemassa policyn lähteessä (oletuksena base),
+      muuten askel ohitetaan. Poikkeama kaataa askeleen.
     required: false
     default: .portti/tapaukset.yml
   tila:

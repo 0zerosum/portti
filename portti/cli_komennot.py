@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from portti.arviointi import arvioi
@@ -14,7 +15,7 @@ from portti.github_api import GitHubApi
 from portti.kommentti import kirjoita_tai_paivita, renderoi
 from portti.luokittelu import Edellytykset
 from portti.policy import Policy, lataa_policy
-from portti.policy_lahde import PolicyLahde, valmistele_tiedosto
+from portti.policy_lahde import PolicyLahde, PolicyLahdeVirhe, valmistele_tiedosto
 from portti.shadow import kokoa_shadow_raportti
 from portti.shadow_muotoilu import muotoile_shadow_raportti, shadow_raportti_jsoniksi
 from portti.tapaukset import aja_tapaukset, lue_tapaukset, muotoile_tulokset
@@ -76,31 +77,52 @@ def komento_kommentti(argumentit: argparse.Namespace, api: GitHubApi) -> int:
     return 0
 
 
+@dataclass(frozen=True)
+class _TapausSyote:
+    policy: Policy
+    tapaukset: Path | None
+    merkinta: str
+    ohitetaan: bool = False
+
+
+def _tapaukset_headista(argumentit: argparse.Namespace, repo_polku: Path) -> _TapausSyote:
+    # Suhteelliset polut ovat repon polkuja, eivät työhakemiston.
+    policy = lataa_policy(repo_polku / argumentit.policy)
+    return _TapausSyote(policy, repo_polku / argumentit.tapaukset, "policy ja tapaukset: head")
+
+
+def _tapaukset_basesta(argumentit: argparse.Namespace, repo_polku: Path) -> _TapausSyote:
+    """Tapaukset ovat valinnaisia: basesta puuttuva tapaustiedosto ohittaa askeleen, ei kaada sitä."""
+    base_sha = ratkaise_sha(repo_polku, argumentit.base)
+    policy, lahde = _lataa_policy_lahteesta(repo_polku, base_sha, argumentit.policy, argumentit.lahde, argumentit.tila)
+    try:
+        tapaukset, tapausten_lahde = valmistele_tiedosto(
+            repo_polku, base_sha, argumentit.tapaukset, argumentit.lahde, argumentit.tila, _tyokansio()
+        )
+    except PolicyLahdeVirhe:
+        return _TapausSyote(policy, None, f"policy: {lahde.merkinta}, tapaukset: ei basessa {base_sha[:12]}", True)
+    return _TapausSyote(policy, tapaukset, f"policy: {lahde.merkinta}, tapaukset: {tapausten_lahde.merkinta}")
+
+
 def komento_tapaukset(argumentit: argparse.Namespace) -> int:
     repo_polku: Path = argumentit.repo_polku
     if argumentit.lahde == "head" or (argumentit.lahde == "auto" and argumentit.tila == "shadow"):
-        # Suhteelliset polut ovat repon polkuja, eivät työhakemiston.
-        policy = lataa_policy(repo_polku / argumentit.policy)
-        tapaukset_polku: Path | None = repo_polku / argumentit.tapaukset
-        merkinta = "head"
-    else:
-        if argumentit.base is None:
-            print("portti: --base tarvitaan, kun tapaukset luetaan basesta", file=sys.stderr)
-            return 2
-        base_sha = ratkaise_sha(repo_polku, argumentit.base)
-        policy, lahde = _lataa_policy_lahteesta(repo_polku, base_sha, argumentit.policy, argumentit.lahde, argumentit.tila)
-        tapaukset_polku, _ = valmistele_tiedosto(
-            repo_polku, base_sha, argumentit.tapaukset, argumentit.lahde, argumentit.tila, _tyokansio()
-        )
-        merkinta = lahde.merkinta
-    if tapaukset_polku is None or not tapaukset_polku.exists():
-        print(f"portti: tapaustiedostoa {argumentit.tapaukset} ei ole ({merkinta})", file=sys.stderr)
+        syote = _tapaukset_headista(argumentit, repo_polku)
+    elif argumentit.base is None:
+        print("portti: --base tarvitaan, kun tapaukset luetaan basesta", file=sys.stderr)
         return 2
-    tulokset = aja_tapaukset(repo_polku, lue_tapaukset(tapaukset_polku), policy)
+    else:
+        syote = _tapaukset_basesta(argumentit, repo_polku)
+    if syote.ohitetaan:
+        print(f"portti: tapaustiedostoa {argumentit.tapaukset} ei ole ({syote.merkinta}), ohitetaan", file=sys.stderr)
+        return 0
+    if syote.tapaukset is None or not syote.tapaukset.exists():
+        print(f"portti: tapaustiedostoa {argumentit.tapaukset} ei ole ({syote.merkinta})", file=sys.stderr)
+        return 2
+    tulokset = aja_tapaukset(repo_polku, lue_tapaukset(syote.tapaukset), syote.policy)
     print(muotoile_tulokset(tulokset))
     eroavat = [tulos for tulos in tulokset if not tulos.ok]
-    print(f"portti: {len(tulokset) - len(eroavat)}/{len(tulokset)} tapausta kunnossa (policy ja tapaukset: {merkinta})",
-          file=sys.stderr)
+    print(f"portti: {len(tulokset) - len(eroavat)}/{len(tulokset)} tapausta kunnossa ({syote.merkinta})", file=sys.stderr)
     return 1 if eroavat else 0
 
 

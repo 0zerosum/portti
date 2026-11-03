@@ -131,8 +131,26 @@ def test_tapaukset_basesta(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     assert main(["tarkista-tapaukset", ".portti/tapaukset.yml", "--repo-polku", str(repo.juuri), "--lahde", "head"]) == 1
     assert main(["tarkista-tapaukset", ".portti/tapaukset.yml", "--repo-polku", str(repo.juuri),
                  "--tila", "enforce", "--base", main_sha]) == 0
-    assert "policy ja tapaukset: base" in capsys.readouterr().err
+    assert "policy: base, tapaukset: base" in capsys.readouterr().err
     assert main(["tarkista-tapaukset", ".portti/tapaukset.yml", "--repo-polku", str(repo.juuri), "--lahde", "base"]) == 2
+
+
+def test_tapaukset_vain_headissa(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Tapaukset ovat valinnaisia: enforce ohittaa askeleen, shadow lukee headista ja sanoo sen."""
+    repo, base = perusrepo(tmp_path / "repo")
+    repo.git("checkout", "-q", "main")
+    repo.kirjoita(".portti/policy.yml", "invarianttitestit: []\n")
+    main_sha = repo.commit("policy mainiin")
+    repo.haara("lisaa-tapaukset", main_sha)
+    repo.kirjoita(".portti/tapaukset.yml",
+                  f"tapaukset:\n  - {{nimi: doc, base: {base}, head: {main_sha}, odotettu_verdict: KOVA}}\n")
+    repo.commit("pr lisaa tapaukset")
+    komento = ["tarkista-tapaukset", ".portti/tapaukset.yml", "--repo-polku", str(repo.juuri), "--base", main_sha]
+    assert main([*komento, "--tila", "enforce"]) == 0
+    assert "tapaukset: ei basessa" in capsys.readouterr().err
+    assert main([*komento, "--tila", "shadow"]) == 0
+    virhe = capsys.readouterr().err
+    assert "1/1 tapausta kunnossa" in virhe and "policy: base, tapaukset: head (basessa ei" in virhe
 
 
 KEVENTAVA_POLICY = (

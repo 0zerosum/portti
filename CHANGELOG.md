@@ -5,7 +5,9 @@
 - Action ja CLI: syöte `policy_lahde` (base, head, auto), oletus `base` kaikissa tiloissa: policy ja tapaukset
   luetaan base-haarasta, jotta PR ei voi keventää omaa luokitustaan. `head` vain eksplisiittisesti (policyn
   kehitys-PR:t). Jos basessa ei ole policyä, enforce kaatuu ja shadow merkitsee kommenttiin "head (basessa
-  ei policy.yml-tiedostoa, luettu headista)". Evidenceen kenttä `policy_lahde`.
+  ei policy.yml-tiedostoa, luettu headista)". Evidenceen kenttä `policy_lahde`. Tapaukset ovat valinnaisia:
+  basesta puuttuva tapaustiedosto ohittaa askeleen enforce-tilassa (shadow lukee headista ja sanoo sen),
+  ja `tarkista-tapaukset` kertoo policyn ja tapausten lähteet erikseen.
 - Enforce-tila: uusi komento `portti esto --evidence <json>` palauttaa 1, kun tila on enforce ja verdict on PUUTE,
   KOVA tai LIIAN-ISO; action ajaa sen viimeisenä askeleena kommentin ja artefaktin jälkeen. Shadow ei kaada koskaan.
   Punainen check on neuvoa-antava: moottori, README ja workflow-mallit eivät oleta pakollisia checkejä, branch
