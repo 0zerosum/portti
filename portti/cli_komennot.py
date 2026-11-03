@@ -15,7 +15,7 @@ from portti.github_api import GitHubApi
 from portti.kommentti import kirjoita_tai_paivita, renderoi
 from portti.luokittelu import Edellytykset
 from portti.policy import Policy, lataa_policy
-from portti.policy_lahde import PolicyLahde, PolicyLahdeVirhe, valmistele_tiedosto
+from portti.policy_lahde import PolicyLahde, valmistele_tiedosto
 from portti.shadow import kokoa_shadow_raportti
 from portti.shadow_muotoilu import muotoile_shadow_raportti, shadow_raportti_jsoniksi
 from portti.tapaukset import aja_tapaukset, lue_tapaukset, muotoile_tulokset
@@ -95,13 +95,11 @@ def _tapaukset_basesta(argumentit: argparse.Namespace, repo_polku: Path) -> _Tap
     """Tapaukset ovat valinnaisia: basesta puuttuva tapaustiedosto ohittaa askeleen, ei kaada sitä."""
     base_sha = ratkaise_sha(repo_polku, argumentit.base)
     policy, lahde = _lataa_policy_lahteesta(repo_polku, base_sha, argumentit.policy, argumentit.lahde, argumentit.tila)
-    try:
-        tapaukset, tapausten_lahde = valmistele_tiedosto(
-            repo_polku, base_sha, argumentit.tapaukset, argumentit.lahde, argumentit.tila, _tyokansio()
-        )
-    except PolicyLahdeVirhe:
-        return _TapausSyote(policy, None, f"policy: {lahde.merkinta}, tapaukset: ei basessa {base_sha[:12]}", True)
-    return _TapausSyote(policy, tapaukset, f"policy: {lahde.merkinta}, tapaukset: {tapausten_lahde.merkinta}")
+    tapaukset, tapausten_lahde = valmistele_tiedosto(
+        repo_polku, base_sha, argumentit.tapaukset, argumentit.lahde, argumentit.tila, _tyokansio()
+    )
+    merkinta = f"policy: {lahde.merkinta}, tapaukset: {tapausten_lahde.merkinta}"
+    return _TapausSyote(policy, tapaukset, merkinta, ohitetaan=tapaukset is None)
 
 
 def komento_tapaukset(argumentit: argparse.Namespace) -> int:

@@ -1,7 +1,9 @@
 """Policyn ja tapausten lukeminen PR:n headista tai base-haarasta.
 
 Oletus on base kaikissa tiloissa, jotta PR ei voi muuttaa sääntöjä, joilla se itse arvioidaan.
-Head valitaan eksplisiittisesti (policyn kehitys-PR:t); auto valitsee tilan mukaan.
+Head valitaan eksplisiittisesti (policyn kehitys-PR:t); auto valitsee tilan mukaan. Jos basessa ei
+ole tiedostoa, luetaan pelkkä oletuspolicy (merkintä "oletus"), ei koskaan headia: oletus tulee
+pinnatun moottorin mukana eikä ole PR:n käsissä, joten se ei ole kevennysreitti.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from portti.git_diff import nayta_tiedosto
 
 LAHTEET = ("auto", "head", "base")
 TILAT = ("shadow", "enforce")
+OLETUS = "oletus"
 
 
 class PolicyLahdeVirhe(ValueError):
@@ -47,6 +50,7 @@ def valmistele_tiedosto(
     """Palauttaa luettavan tiedoston polun (tai None, jos tiedostoa ei ole) ja toteutuneen lähteen.
 
     Base-luku kirjoittaa basen version kohdekansioon, jotta loput moottorista lukee tavallisen tiedoston.
+    Basesta puuttuva tiedosto antaa None ja lähteen "oletus": policylle se tarkoittaa pelkkää oletuspolicyä.
     """
     toteutunut = ratkaise_lahde(lahde, tila)
     head_polku = repo / polku
@@ -54,10 +58,7 @@ def valmistele_tiedosto(
         return (head_polku if head_polku.exists() else None), PolicyLahde(lahde, "head")
     sisalto = nayta_tiedosto(repo, base_sha, polku.as_posix())
     if sisalto is None:
-        if tila == "enforce":
-            raise PolicyLahdeVirhe(f"enforce: basessa {base_sha[:12]} ei ole tiedostoa {polku.as_posix()}")
-        huomautus = f"basessa ei {polku.name}-tiedostoa, luettu headista"
-        return (head_polku if head_polku.exists() else None), PolicyLahde(lahde, "head", huomautus)
+        return None, PolicyLahde(lahde, OLETUS, f"basessa {base_sha[:12]} ei {polku.name}-tiedostoa")
     kohdekansio.mkdir(parents=True, exist_ok=True)
     kohde = kohdekansio / polku.name
     kohde.write_text(sisalto, encoding="utf-8")

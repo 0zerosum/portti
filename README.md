@@ -112,9 +112,11 @@ eivät varjosta moottorin moduuleja.
 Policy ja tapaukset luetaan oletuksena base-haaran versiosta
 (`git show <base-sha>:.portti/policy.yml`), jotta PR ei voi muuttaa sääntöjä, joilla se
 arvioidaan. `policy_lahde: head` lukee PR:n oman version ja on tarkoitettu policyn
-kehitys-PR:ille. Jos basessa ei ole policyä, enforce kaatuu näkyvästi ja shadow lukee
-headista merkinnällä kommentissa. Enforce- ja shadow-ajo kirjoittavat kumpikin oman
-kommenttinsa.
+kehitys-PR:ille. Jos basessa ei ole policyä, luetaan pelkkä oletuspolicy ja kommentti
+kertoo sen (`Policy: oletus (basessa … ei policy.yml-tiedostoa)`); PR:n omaa policyä ei lueta
+ilman `policy_lahde: head`. Oletus tulee pinnatun moottorin mukana, joten se ei ole
+kevennysreitti. Sama koskee regressiotapauksia: basesta puuttuva tapaustiedosto ohittaa
+askeleen. Enforce- ja shadow-ajo kirjoittavat kumpikin oman kommenttinsa.
 
 Enforce-tilassa estävä verdict tekee checkistä punaisen. Check on neuvoa-antava:
 Free-tason yksityisrepossa ei ole pakollisia checkejä eikä branch protectionia, joten

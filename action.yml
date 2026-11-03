@@ -26,8 +26,8 @@ inputs:
   policy_lahde:
     description: >-
       Mistä policy ja tapaukset luetaan: base (base-haaran versio, oletus), head (PR:n versio) tai auto
-      (shadow → head, enforce → base). Jos basessa ei ole policyä: enforce kaatuu, shadow lukee headista
-      ja merkitsee sen kommenttiin.
+      (shadow → head, enforce → base). Jos basessa ei ole policyä, luetaan pelkkä oletuspolicy ja
+      kommentti kertoo sen; headia ei lueta ilman eksplisiittistä valintaa.
     required: false
     default: base
   github_token:

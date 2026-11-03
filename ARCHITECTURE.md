@@ -43,8 +43,10 @@ täsmäävän kommentin, muuten viimeisimmän. Ennen 0.3.0 kirjoitetut kommentit
 ## Policyn lähde
 
 Policy ja tapaukset luetaan oletuksena base-shasta kaikissa tiloissa (`policy_lahde: base`);
-head vain eksplisiittisesti, auto tilan mukaan. Enforce ilman base-policyä kaatuu; shadow
-lukee headista ja merkitsee sen evidenceen ja kommenttiin. Enforce-tilassa actionin viimeinen askel (`esto`) palauttaa 1, kun verdict on
+head vain eksplisiittisesti, auto tilan mukaan. Jos basessa ei ole policyä, luetaan pelkkä
+oletuspolicy ja evidence sekä kommentti kertovat sen ("oletus"); headia ei lueta koskaan ilman
+eksplisiittistä valintaa, koska oletus ei ole PR:n käsissä mutta head on. Enforce-tilassa actionin
+viimeinen askel (`esto`) palauttaa 1, kun verdict on
 PUUTE, KOVA tai LIIAN-ISO; kommentti ja artefakti on jo kirjoitettu. Shadow ei kaada koskaan.
 Punainen check on neuvoa-antava: moottori ei oleta pakollisia checkejä eikä branch
 protectionia, koska Free-tason yksityisrepossa niitä ei ole.

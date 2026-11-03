@@ -49,15 +49,16 @@ def test_valmistele_head_ja_base(tmp_path: Path) -> None:
     assert base_polku is not None and base_polku.read_text(encoding="utf-8") == "invarianttitestit: []\n"
 
 
-def test_base_ilman_policya(tmp_path: Path) -> None:
+def test_base_ilman_policya_antaa_oletuksen_molemmissa_tiloissa(tmp_path: Path) -> None:
+    """Headia ei lueta koskaan ilman eksplisiittistä pyyntöä, vaikka headissa olisi policy."""
     repo, base = perusrepo(tmp_path / "repo")
-    head = repo.commit("tyhja")
+    repo.kirjoita(".portti/policy.yml", PEHMEA_LASKENTA)
+    repo.commit("policy vain headissa")
     kohde = tmp_path / "lahde"
-    with pytest.raises(PolicyLahdeVirhe, match="enforce"):
-        valmistele_tiedosto(repo.juuri, base, Path(".portti/policy.yml"), "auto", "enforce", kohde)
-    polku, lahde = valmistele_tiedosto(repo.juuri, base, Path(".portti/policy.yml"), "base", "shadow", kohde)
-    assert polku is None and lahde.toteutunut == "head" and "basessa ei" in (lahde.huomautus or "")
-    assert lahde.merkinta.startswith("head (")
+    for lahde_arg, tila in (("auto", "enforce"), ("base", "shadow"), ("base", "enforce")):
+        polku, lahde = valmistele_tiedosto(repo.juuri, base, Path(".portti/policy.yml"), lahde_arg, tila, kohde)
+        assert polku is None and lahde.toteutunut == "oletus"
+        assert lahde.merkinta.startswith("oletus (basessa ") and "ei policy.yml-tiedostoa" in lahde.merkinta
 
 
 def arvioi_json(repo: SynteettinenRepo, base: str, head: str, *lisa: str) -> dict:  # type: ignore[type-arg]
@@ -99,20 +100,21 @@ def test_pelkka_koodi_eri_verdict_lahteen_mukaan(tmp_path: Path) -> None:
     assert tulos_base["policy_lahde"] == "base"
 
 
-def test_enforce_ilman_base_policya_kaatuu_cli(tmp_path: Path) -> None:
-    repo, base = perusrepo(tmp_path / "repo")
-    head = repo.commit("tyhja")
-    with pytest.raises(PolicyLahdeVirhe):
-        main(["arvioi", "--base", base, "--head", head, "--repo-polku", str(repo.juuri), "--tila", "enforce"])
-
-
-def test_shadow_base_fallback_nakyy_evidencessa(tmp_path: Path) -> None:
+def test_ilman_base_policya_arvioidaan_oletuksella_eika_headin_policylla(tmp_path: Path) -> None:
+    """PR lisää policyn, joka tekisi docs-muutoksesta pehmeän: oletus ei tunne sitä, kommentti syntyy silti."""
     repo, base = perusrepo(tmp_path / "repo")
     repo.kirjoita("docs/ohje.md", "lisays\n")
+    repo.kirjoita(".portti/policy.yml",
+                  "deny:\n  pehmea:\n    ohjeet:\n      polut: ['docs/**']\nallow:\n  laajenna_paitsi: ['docs/**']\n")
     head = repo.commit()
-    evidence = arvioi_json(repo, base, head, "--policy-lahde", "base")
-    assert evidence["policy_lahde"].startswith("head (basessa ei")
-    assert evidence["verdict"] == "VAPAA"
+    for tila in ("enforce", "shadow"):
+        evidence = arvioi_json(repo, base, head, "--tila", tila)
+        assert evidence["policy_lahde"].startswith("oletus (basessa ") and "ei policy.yml-tiedostoa" in evidence["policy_lahde"]
+        kategoriat = {osuma["kategoria"] for osuma in evidence["luokitus"]["deny_osumat"]}
+        assert "ohjeet" not in kategoriat and "portti_itse" in kategoriat
+    headin = arvioi_json(repo, base, head, "--policy-lahde", "head")
+    assert headin["policy_lahde"] == "head"
+    assert "ohjeet" in {osuma["kategoria"] for osuma in headin["luokitus"]["deny_osumat"]}
 
 
 def test_tapaukset_basesta(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -136,7 +138,7 @@ def test_tapaukset_basesta(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
 
 
 def test_tapaukset_vain_headissa(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Tapaukset ovat valinnaisia: enforce ohittaa askeleen, shadow lukee headista ja sanoo sen."""
+    """Tapaukset ovat valinnaisia: basesta puuttuva tiedosto ohittaa askeleen molemmissa tiloissa, headia ei lueta."""
     repo, base = perusrepo(tmp_path / "repo")
     repo.git("checkout", "-q", "main")
     repo.kirjoita(".portti/policy.yml", "invarianttitestit: []\n")
@@ -146,11 +148,13 @@ def test_tapaukset_vain_headissa(tmp_path: Path, capsys: pytest.CaptureFixture[s
                   f"tapaukset:\n  - {{nimi: doc, base: {base}, head: {main_sha}, odotettu_verdict: KOVA}}\n")
     repo.commit("pr lisaa tapaukset")
     komento = ["tarkista-tapaukset", ".portti/tapaukset.yml", "--repo-polku", str(repo.juuri), "--base", main_sha]
-    assert main([*komento, "--tila", "enforce"]) == 0
-    assert "tapaukset: ei basessa" in capsys.readouterr().err
-    assert main([*komento, "--tila", "shadow"]) == 0
-    virhe = capsys.readouterr().err
-    assert "1/1 tapausta kunnossa" in virhe and "policy: base, tapaukset: head (basessa ei" in virhe
+    for tila in ("enforce", "shadow"):
+        assert main([*komento, "--tila", tila]) == 0
+        virhe = capsys.readouterr().err
+        assert "ohitetaan" in virhe and "policy: base, tapaukset: oletus (basessa " in virhe
+        assert "tapausta kunnossa" not in virhe
+    assert main([*komento, "--lahde", "head"]) == 0
+    assert "1/1 tapausta kunnossa (policy ja tapaukset: head)" in capsys.readouterr().err
 
 
 KEVENTAVA_POLICY = (
