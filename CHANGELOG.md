@@ -2,8 +2,9 @@
 
 ## 0.3.0
 
-- Action ja CLI: syöte `policy_lahde` (head, base, auto). Enforce lukee policyn ja tapaukset base-haarasta,
-  shadow PR:n headista. Jos basessa ei ole policyä, enforce kaatuu ja shadow merkitsee kommenttiin "head (basessa
+- Action ja CLI: syöte `policy_lahde` (base, head, auto), oletus `base` kaikissa tiloissa: policy ja tapaukset
+  luetaan base-haarasta, jotta PR ei voi keventää omaa luokitustaan. `head` vain eksplisiittisesti (policyn
+  kehitys-PR:t). Jos basessa ei ole policyä, enforce kaatuu ja shadow merkitsee kommenttiin "head (basessa
   ei policy.yml-tiedostoa, luettu headista)". Evidenceen kenttä `policy_lahde`.
 - Enforce-tila ei enää kaadu "ei toteutettu": luentapolku on toteutettu, verdictin estävä osa ei. Enforce-kommentti
   on oma kommenttinsa (tunniste sisältää tilan), joten shadow- ja enforce-ajo samassa PR:ssä eivät sekoitu.

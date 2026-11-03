@@ -1,7 +1,7 @@
 """Policyn ja tapausten lukeminen PR:n headista tai base-haarasta.
 
-Shadow-tilassa PR:n oma policy ohjaa ajoa (head). Enforce-tilassa policy luetaan basesta,
-jotta PR ei voi muuttaa sääntöjä, joilla se itse arvioidaan.
+Oletus on base kaikissa tiloissa, jotta PR ei voi muuttaa sääntöjä, joilla se itse arvioidaan.
+Head valitaan eksplisiittisesti (policyn kehitys-PR:t); auto valitsee tilan mukaan.
 """
 
 from __future__ import annotations

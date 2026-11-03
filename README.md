@@ -95,7 +95,7 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
 | `policy_polku` | `.portti/policy.yml` | repon policy |
 | `tapaukset_polku` | `.portti/tapaukset.yml` | regressiotapaukset; ajetaan, jos tiedosto on olemassa |
 | `tila` | `shadow` | `shadow` lukee PR:n policyn; `enforce` lukee base-haaran policyn, mutta ei vielä estä |
-| `policy_lahde` | `auto` | `head`, `base` tai `auto` (shadow → head, enforce → base) |
+| `policy_lahde` | `base` | `base` (base-haaran policy ja tapaukset), `head` (PR:n oma, vain eksplisiittisesti) tai `auto` (shadow → head, enforce → base) |
 | `github_token` | – | PR:n tilan luku ja kommentin kirjoitus |
 | `python_versio` | `3.11` | moottorin tulkki |
 
@@ -107,11 +107,12 @@ eivät varjosta moottorin moduuleja.
 
 ## Enforce-valmius
 
-Shadow-tilassa PR:n oma policy ohjaa ajoa, joten PR voisi muuttaa sääntöjä, joilla se
-arvioidaan. Enforce-tilassa (tai `policy_lahde: base`) policy ja tapaukset luetaan
-base-haaran versiosta (`git show <base-sha>:.portti/policy.yml`). Jos basessa ei ole
-policyä, enforce kaatuu näkyvästi ja shadow lukee headista merkinnällä kommentissa.
-Enforce- ja shadow-ajo kirjoittavat kumpikin oman kommenttinsa.
+Policy ja tapaukset luetaan oletuksena base-haaran versiosta
+(`git show <base-sha>:.portti/policy.yml`), jotta PR ei voi muuttaa sääntöjä, joilla se
+arvioidaan. `policy_lahde: head` lukee PR:n oman version ja on tarkoitettu policyn
+kehitys-PR:ille. Jos basessa ei ole policyä, enforce kaatuu näkyvästi ja shadow lukee
+headista merkinnällä kommentissa. Enforce- ja shadow-ajo kirjoittavat kumpikin oman
+kommenttinsa.
 
 Enforce ei vielä estä mitään: verdictin estävä osa on toteuttamatta. Kun se toteutetaan,
 estäminen vaatii lisäksi GitHubissa required status checkin ja branch protectionin

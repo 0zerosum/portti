@@ -26,4 +26,4 @@ jobs:
       - name: Yksikkötestit
         run: python -m pytest -q
       - name: Omat regressiotapaukset
-        run: portti tarkista-tapaukset .portti/tapaukset.yml
+        run: portti tarkista-tapaukset .portti/tapaukset.yml --lahde head

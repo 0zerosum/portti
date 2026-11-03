@@ -78,9 +78,11 @@ def test_tarkista_tapaukset_kaatuu_poikkeamasta(tmp_path: Path, capsys: pytest.C
     head = repo.commit()
     yml = tmp_path / "tapaukset.yml"
     yml.write_text(f"tapaukset:\n  - {{nimi: ohjeet, base: {base}, head: {head}, odotettu_verdict: KOVA}}\n", encoding="utf-8")
-    assert main(["tarkista-tapaukset", str(yml), "--repo-polku", str(repo.juuri), "--policy", str(tmp_path / "ei-ole.yml")]) == 0
+    komento = ["tarkista-tapaukset", str(yml), "--repo-polku", str(repo.juuri), "--policy", str(tmp_path / "ei-ole.yml")]
+    assert main(komento) == 2, "oletuslähde on base, joten --base tarvitaan"
+    assert main([*komento, "--lahde", "head"]) == 0
     yml.write_text(f"tapaukset:\n  - {{nimi: ohjeet, base: {base}, head: {head}, odotettu_verdict: VAPAA}}\n", encoding="utf-8")
-    assert main(["tarkista-tapaukset", str(yml), "--repo-polku", str(repo.juuri), "--policy", str(tmp_path / "ei-ole.yml")]) == 1
+    assert main([*komento, "--lahde", "head"]) == 1
     assert "EROAA ohjeet" in capsys.readouterr().out
 
 

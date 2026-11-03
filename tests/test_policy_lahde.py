@@ -70,7 +70,9 @@ def arvioi_json(repo: SynteettinenRepo, base: str, head: str, *lisa: str) -> dic
 
 def test_head_ja_base_antavat_eri_verdictin(tmp_path: Path) -> None:
     repo, base, head = policy_pr(tmp_path)
-    shadow = arvioi_json(repo, base, head)
+    oletus = arvioi_json(repo, base, head)
+    assert oletus["policy_lahde"] == "base", "oletuslähde on base myös shadow-tilassa"
+    shadow = arvioi_json(repo, base, head, "--policy-lahde", "head")
     enforce = arvioi_json(repo, base, head, "--tila", "enforce")
     assert shadow["policy_lahde"] == "head" and shadow["verdict"] == "KOVA"
     assert enforce["policy_lahde"] == "base" and enforce["verdict"] == "KOVA"

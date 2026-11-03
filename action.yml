@@ -21,11 +21,11 @@ inputs:
     default: shadow
   policy_lahde:
     description: >-
-      Mistä policy ja tapaukset luetaan: head (PR:n versio), base (base-haaran versio) tai auto
+      Mistä policy ja tapaukset luetaan: base (base-haaran versio, oletus), head (PR:n versio) tai auto
       (shadow → head, enforce → base). Jos basessa ei ole policyä: enforce kaatuu, shadow lukee headista
       ja merkitsee sen kommenttiin.
     required: false
-    default: auto
+    default: base
   github_token:
     description: Token, jolla luetaan PR:n tila ja kirjoitetaan kommentti (pull-requests write).
     required: true

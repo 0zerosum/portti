@@ -40,9 +40,9 @@ kommentit eivät sisällä kategorioita eivätkä portaita; raportti näyttää 
 
 ## Policyn lähde
 
-Shadow lukee policyn ja tapaukset PR:n headista, enforce base-shasta (`policy_lahde: auto`).
-Enforce ilman base-policyä kaatuu; shadow lukee headista ja merkitsee sen evidenceen ja
-kommenttiin. Enforcen estävä osa (verdict kaataa ajon) on tarkoituksella toteuttamatta.
+Policy ja tapaukset luetaan oletuksena base-shasta kaikissa tiloissa (`policy_lahde: base`);
+head vain eksplisiittisesti, auto tilan mukaan. Enforce ilman base-policyä kaatuu; shadow
+lukee headista ja merkitsee sen evidenceen ja kommenttiin. Enforcen estävä osa (verdict kaataa ajon) on tarkoituksella toteuttamatta.
 
 ## Datamalli
 

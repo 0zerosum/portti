@@ -17,8 +17,8 @@ def _lisaa_arvioi(alikomennot: argparse._SubParsersAction) -> None:  # type: ign
     komento.add_argument("--base", required=True)
     komento.add_argument("--head", required=True)
     komento.add_argument("--policy", type=Path, default=Path(".portti/policy.yml"))
-    komento.add_argument("--policy-lahde", choices=LAHTEET, default="auto",
-                         help="head = PR:n oma policy, base = base-haaran policy, auto = tilan mukaan")
+    komento.add_argument("--policy-lahde", choices=LAHTEET, default="base",
+                         help="base = base-haaran policy (oletus), head = PR:n oma policy, auto = tilan mukaan")
     komento.add_argument("--repo-polku", type=Path, default=Path("."))
     komento.add_argument("--repo", default="paikallinen")
     komento.add_argument("--pr", type=int, default=None)
@@ -42,7 +42,7 @@ def _lisaa_tapaukset(alikomennot: argparse._SubParsersAction) -> None:  # type: 
     komento.add_argument("tapaukset", type=Path)
     komento.add_argument("--policy", type=Path, default=Path(".portti/policy.yml"))
     komento.add_argument("--repo-polku", type=Path, default=Path("."))
-    komento.add_argument("--lahde", choices=LAHTEET, default="auto", help="mistä policy ja tapaukset luetaan")
+    komento.add_argument("--lahde", choices=LAHTEET, default="base", help="mistä policy ja tapaukset luetaan")
     komento.add_argument("--tila", choices=TILAT, default="shadow")
     komento.add_argument("--base", default=None, help="base-viite, kun lähde on base")
 
