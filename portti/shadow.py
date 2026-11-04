@@ -96,8 +96,10 @@ def ryhma_haaralle(base_haara: str) -> str:
 
 def _portin_konedata(kommentit: list[dict[str, Any]], head_sha: str | None) -> dict[str, Any] | None:
     """PR:n headiin täsmäävä portin kommentti; muuten viimeisin. Kommentit tulevat luontijärjestyksessä."""
-    loydetyt = [konedata for konedata in (lue_konedata(str(kommentti.get("body", ""))) for kommentti in kommentit)
-                if konedata is not None]
+    loydetyt: list[dict[str, Any]] = [
+        konedata for konedata in (lue_konedata(str(kommentti.get("body", ""))) for kommentti in kommentit)
+        if konedata is not None
+    ]
     for konedata in reversed(loydetyt):
         if konedata.get("head_sha") == head_sha:
             return konedata

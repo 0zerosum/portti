@@ -23,6 +23,7 @@ pinnatulla sha:lla.
 | `portti/shadow.py` | shadow-raportin data: ryhmittely base-haaran mukaan, mittarit, kategoriat, jakaumat |
 | `portti/shadow_muotoilu.py` | shadow-raportin markdown- ja JSON-tuloste |
 | `portti/tapaukset.py` | kuluttajarepon regressiotapaukset |
+| `portti/arviointi.py` | yhden arvioinnin kokoaminen: luokitus, verdict ja evidence samasta syötteestä (`arvioi`) |
 | `portti/cli.py` | komentorivin jäsennin ja ohjaus |
 | `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `kommentti`, `esto`, `tarkista-tapaukset`, `shadow-raportti` |
 
