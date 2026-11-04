@@ -26,10 +26,33 @@ pinnatulla sha:lla.
 | `portti/arviointi.py` | yhden arvioinnin kokoaminen: luokitus, verdict ja evidence samasta syötteestä (`arvioi`) |
 | `portti/cli.py` | komentorivin jäsennin ja ohjaus |
 | `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `kommentti`, `esto`, `tarkista-tapaukset`, `shadow-raportti` |
+| `portti/ohjaus.py` | ohjauksen päätöstaulu (rivit a–e), fail-closed, päätös-JSON; ei verkkoa |
+| `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste, ei sekoitu portin kommenttiin) |
+| `portti/ohjaus_toteutus.py` | päätöksen soveltaminen: labelit, katselmoijapyyntö, kommentti, kortti-ajon käynnistys idempotentisti |
+| `portti/cli_ohjaus.py` | komennot `ohjaa` ja `ohjaus-toteuta` |
 
-Riippuvuussuunta: `cli` → `cli_komennot` → (`arviointi`, `kommentti`, `shadow`,
-`shadow_muotoilu`, `tapaukset`, `policy_lahde`) → (`policy`, `git_diff`, `invariantit`,
-`github_api`) → (`paallekkaisyys`, `polkumallit`). Alemmat eivät tunne ylempiä.
+Riippuvuussuunta: `cli` → (`cli_komennot`, `cli_ohjaus`) → (`arviointi`, `kommentti`, `shadow`,
+`shadow_muotoilu`, `tapaukset`, `policy_lahde`, `ohjaus_toteutus`) → (`policy`, `git_diff`, `invariantit`,
+`github_api`, `ohjaus_kommentti`, `ohjaus`) → (`paallekkaisyys`, `polkumallit`, `verdict`). Alemmat eivät tunne
+ylempiä. `ohjaus` lukee evidencen sanakirjana eikä riipu luokittelusta: se saa kaiken syötteenä ja on puhdas funktio.
+
+## Ohjaus
+
+Ohjaus on moottorin osa ja deterministinen: `portti ohjaa` ei käytä verkkoa eikä kielimallia. Syötteet ovat
+evidence (tai tieto sen puuttumisesta), testityönkulun lopputulos PR:n headille, muuttuneet polut, PR:n labelit
+ja forkkitieto; tuloste on järjestetty päätös-JSON ilman tunnuksia. Toteutus (`ohjaus-toteuta`) on erillinen
+askel, joka puhuu GitHubille `GitHubApi`n kautta ja lukee idempotenssia varten edellisen ohjauskommentin konedatan.
+Katselmoijien tunnukset tulevat parametreina kuluttajarepon muuttujista; moottori ei tunne niitä.
+Työnkulku `.github/workflows/ohjaus.yml` ajetaan kuluttajan oletushaarasta (`workflow_run`), ei hae PR:n koodia
+ja hakee moottorin pinnatusta shasta.
+
+## Kortti-ajo on erillinen komponentti
+
+`.github/workflows/kortti-ajo.yml`, `ajo/prompti.md` ja `ajo/kokoa_prompti.py` muodostavat kortti-ajon, joka
+käyttää kielimallia (claude-code-action) kuluttajarepossa. Moottori (`portti/`) ei tuo mitään kortti-ajosta eikä
+kortti-ajo tuo moottoria: kokoaja on vakiokirjaston skripti, jota ajetaan `python -I`. Kortti-ajon tuotos on PR,
+jonka Portti ja ohjaus arvioivat kuten minkä tahansa PR:n. Riippuvuussuunta: kortti-ajo → (prompti, kokoaja);
+ohjaus → kortti-ajo vain `workflow_dispatch`-kutsuna, ei koodiriippuvuutena.
 
 ## Evidence-lähde shadow-raportille
 
