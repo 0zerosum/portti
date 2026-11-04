@@ -25,6 +25,8 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
 1. `.portti/policy.yml` — täydentää oletusta. Mappingit yhdistetään avain
    kerrallaan, repon lista korvaa oletuksen listan, `laajenna_<avain>` lisää siihen.
    Tuntematon avain on latausvirhe. Kova-kategoriaa `portti_itse` ei saa korvata.
+   Sen polku `CODEOWNERS` on vain luokittelua varten: tiedoston muutos on kova, mutta portti ei
+   edellytä tiedostoa eikä GitHubin katselmointipakkoa, jota Free-tason yksityisrepossa ei ole.
 
    ```yaml
    alueen_maaritys:
@@ -91,22 +93,69 @@ Moduulirajat ovat tiedostossa [ARCHITECTURE.md](ARCHITECTURE.md).
 | Syöte | Oletus | Merkitys |
 |---|---|---|
 | `policy_polku` | `.portti/policy.yml` | repon policy |
-| `tapaukset_polku` | `.portti/tapaukset.yml` | regressiotapaukset; ajetaan, jos tiedosto on olemassa |
-| `tila` | `shadow` | `shadow` kommentoi; `enforce` kaatuu "ei toteutettu" |
+| `tapaukset_polku` | `.portti/tapaukset.yml` | regressiotapaukset; ajetaan, jos tiedosto on olemassa policyn lähteessä (oletuksena base), muuten ohitetaan |
+| `tila` | `shadow` | `shadow` vain kommentoi; `enforce` kaataa ajon estävästä verdictistä (PUUTE, KOVA, LIIAN-ISO) |
+| `policy_lahde` | `base` | `base` (base-haaran policy ja tapaukset), `head` (PR:n oma, vain eksplisiittisesti) tai `auto` (shadow → head, enforce → base) |
 | `github_token` | – | PR:n tilan luku ja kommentin kirjoitus |
 | `python_versio` | `3.11` | moottorin tulkki |
 
 Shadow-tilassa action ei hyväksy, ei pyydä muutoksia eikä palauta verdictistä
-estävää exit-koodia. Evidence ladataan artefaktiksi `portti-evidence-pr<numero>`.
+estävää exit-koodia. Enforce-tilassa viimeinen askel (`portti esto`) palauttaa 1, kun
+verdict on PUUTE, KOVA tai LIIAN-ISO; kommentti ja artefakti on silloin jo kirjoitettu.
+Evidence ladataan artefaktiksi `portti-evidence-pr<numero>`.
 Regressiotapausten poikkeama sen sijaan kaataa askeleen, kuten rikkoutunut testi.
 Kaikki Python-askeleet ajetaan `PYTHONSAFEPATH=1`, jotta PR:n checkoutin tiedostot
-eivät varjosta moottorin moduuleja. Shadow-tilassa PR:n oma policy ja työnkulku
-ohjaavat ajoa; enforce-tila edellyttää niiden lukemista base-haarasta (päätöslista).
+eivät varjosta moottorin moduuleja.
+
+## Enforce
+
+Policy ja tapaukset luetaan oletuksena base-haaran versiosta
+(`git show <base-sha>:.portti/policy.yml`), jotta PR ei voi muuttaa sääntöjä, joilla se
+arvioidaan. `policy_lahde: head` lukee PR:n oman version ja on tarkoitettu policyn
+kehitys-PR:ille. Jos basessa ei ole policyä, luetaan pelkkä oletuspolicy ja kommentti
+kertoo sen (`Policy: oletus (basessa … ei policy.yml-tiedostoa)`); PR:n omaa policyä ei lueta
+ilman `policy_lahde: head`. Oletus tulee pinnatun moottorin mukana, joten se ei ole
+kevennysreitti. Sama koskee regressiotapauksia: basesta puuttuva tapaustiedosto ohittaa
+askeleen. Enforce- ja shadow-ajo kirjoittavat kumpikin oman kommenttinsa.
+
+Enforce-tilassa estävä verdict tekee checkistä punaisen. Check on neuvoa-antava:
+Free-tason yksityisrepossa ei ole pakollisia checkejä eikä branch protectionia, joten
+GitHub ei estä mergeä, vaan katselmoija päättää sen punaisen checkin ja kommentin
+perusteella. Moottori ei oleta näitä asetuksia mistään tasosta riippumatta.
+
+Workflow ajetaan `pull_request`-tapahtumalla, joten workflow-tiedosto tulee PR:n
+headista. PR voi siis poistaa Portti-ajon, vaihtaa moottorin shan tai asettaa
+`policy_lahde: head`; moottori ei voi sitä estää. Nämä polut (`.github/**` ja
+`.github/workflows/portti.yml`) ovat oletuksen kova-kategorioissa `ci` ja `portti_itse`,
+ja `portti shadow-raportti` näyttää jälkikäteen PR:t, joista portin kommentti puuttuu.
+Katselmoija tarkistaa, että check on ajettu ja kommentti on PR:n headista.
+
+## Päällekkäisyyssääntö
+
+Allow-polku ei saa leikata kova- tai pehmea-polkua. Muuten pehmeä muutos voisi olla T0
+ja hyväksyttävissä kaikilla portailla. Policy ei lataudu, ja virheilmoitus nimeää polut
+ja korjauksen:
+
+```
+deny pehmea/testidata polku 'fixtures/henkilot.json' leikkaa allow-polun 'fixtures/**';
+lisää 'fixtures/henkilot.json' listaan allow.laajenna_paitsi
+```
+
+Tarkistus on mallitasolla: sama literaalipolku tai glob, joka sisältyy toiseen.
+Kansio-glob ja pääte-glob (`kansio/**` ja `*.md`) eivät leikkaa mallitasolla, joten
+arviointi sulkee aukon erikseen: tiedosto, johon deny osuu, ei koskaan ole vapaa, ja
+PEHMEÄ ei ole hyväksyttävissä millään portaalla. `paitsi`-lista poistaa leikkauksen.
+ei_laskennassa-lista saa leikata deny-polkuja: generoitu tiedosto deny-kansiossa jää
+laskennasta pois, mutta deny osuu siihen silti, eikä T0 synny ilman allow-osumaa.
 
 ## Muut komennot
 
-- `portti shadow-raportti --repo <omistaja/repo> --alkaen <VVVV-KK-PP>` vertaa
-  portin verdictit suljettujen PR:ien lopputuloksiin. Ei tallenna mitään.
+- `portti shadow-raportti --repo <omistaja/repo> [--repo <toinen>] --alkaen <VVVV-KK-PP> [--json]`
+  vertaa portin verdictit suljettujen PR:ien lopputuloksiin. Ryhmittelee base-haaran mukaan
+  (main erikseen, feat/* ja feature/* yhdessä, muut omanaan), pudottaa draftit ja tulostaa per
+  ryhmä: "KOVA/PEHMEÄ mutta mergetty muuttamatta", "VAPAA mutta hylätty", väärät osumat
+  deny-kategorioittain, jakauma tiereittäin ja portaittain. Lukee kommentin konedatan (säilyy
+  PR:n mukana; artefakti vanhenee). Ei tallenna mitään.
 - `portti kommentti --evidence <json> --repo <omistaja/repo> --pr <n>` kirjoittaa
   tai päivittää portin kommentin.
 

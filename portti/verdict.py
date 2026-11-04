@@ -1,7 +1,8 @@
 """Verdict-sääntö koodissa, ei tulkintaa.
 
 Järjestys: PUUTE > KOVA > LIIAN-ISO > PEHMEÄ > VAPAA.
-Portaat: S0 hyväksyy T0:n, S1 lisäksi T1a:n, S2 T1b:n, S3 T1c:n.
+Portaat: S0 hyväksyy T0:n, S1 lisäksi T1a:n, S2 T1b:n, S3 T1c:n. Vain VAPAA on
+hyväksyttävissä; PEHMEÄ ei millään portaalla, koska deny-osuma ei koskaan ole vapaa.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ LIIAN_ISO = "LIIAN-ISO"
 PEHMEA = "PEHMEÄ"
 VAPAA = "VAPAA"
 VERDICTIT = (PUUTE, KOVA, LIIAN_ISO, PEHMEA, VAPAA)
+ESTAVAT = (PUUTE, KOVA, LIIAN_ISO)
 
 PORTAAT = ("S0", "S1", "S2", "S3")
 TIERIT_PORTAITTAIN = (TIER_T0, "T1a", "T1b", "T1c")
@@ -93,13 +95,16 @@ def _paattele(portit: dict[str, PortinTulos]) -> str:
     return VAPAA
 
 
+def estaa(verdict: str) -> bool:
+    """Enforce-tilassa estävä verdict kaataa actionin esto-askeleen."""
+    return verdict in ESTAVAT
+
+
 def hyvaksyttavissa_portaalla(verdict: str, tier: str) -> list[str]:
     """Portaat, joilla PR olisi automaattisesti hyväksyttävissä."""
     if verdict == VAPAA and tier in TIERIT_PORTAITTAIN:
         alin = TIERIT_PORTAITTAIN.index(tier)
         return list(PORTAAT[alin:])
-    if verdict == PEHMEA and tier == TIER_T0:
-        return list(PORTAAT)
     return []
 
 

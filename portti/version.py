@@ -1,3 +1,3 @@
 """Moottorin versio (semver). Nostetaan jokaisessa julkaisussa."""
 
-VERSIO = "0.2.0"
+VERSIO = "0.3.0"

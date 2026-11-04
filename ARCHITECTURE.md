@@ -10,7 +10,9 @@ pinnatulla sha:lla.
 |---|---|
 | `portti/polkumallit.py` | gitignore-tyyliset polkumallit → regex, osumat ja `paitsi`-poikkeukset |
 | `portti/policy_skeema.py` | tiukka skeema: tuntematon avain, väärä tyyppi, `portti_itse`-suoja |
-| `portti/policy.py` | oletus- ja repopolicyn yhdistäminen (`laajenna_<avain>`), `Policy`-olio |
+| `portti/policy.py` | oletus- ja repopolicyn yhdistäminen (`laajenna_<avain>`), `Policy`-olio, päällekkäisyystarkistuksen kutsu |
+| `portti/paallekkaisyys.py` | allow vs kova/pehmea mallitasolla (literaali tai glob, joka sisältyy toiseen); ei_laskennassa saa leikata |
+| `portti/policy_lahde.py` | policyn ja tapausten luku headista tai basesta (`git show <base-sha>:polku`) tilan mukaan |
 | `portti/git_diff.py` | `git diff base...head` numstat ja name-status (renamet mukaan), tiedoston sisältö revisiosta |
 | `portti/invariantit.py` | testifunktioiden laskenta, invarianttitestien tarkistus |
 | `portti/luokittelu.py` | substantiiviset rivit ja tiedostot, alueet, deny-osumat, kielletyt uudet polut, tier |
@@ -18,13 +20,37 @@ pinnatulla sha:lla.
 | `portti/evidence.py` | evidence-JSON ilman nimiä tai sähköposteja |
 | `portti/kommentti.py` | yhden PR-kommentin renderöinti ja idempotentti päivitys |
 | `portti/github_api.py` | `gh`-kutsut yhden rajapinnan takana (vaihdettava testeissä) |
-| `portti/shadow.py` | shadow-raportti: portin verdict vs. PR:n lopputulos |
+| `portti/shadow.py` | shadow-raportin data: ryhmittely base-haaran mukaan, mittarit, kategoriat, jakaumat |
+| `portti/shadow_muotoilu.py` | shadow-raportin markdown- ja JSON-tuloste |
 | `portti/tapaukset.py` | kuluttajarepon regressiotapaukset |
-| `portti/cli.py` | komentorivi: `arvioi`, `tarkista-tapaukset`, `shadow-raportti`, `kommentti` |
+| `portti/arviointi.py` | yhden arvioinnin kokoaminen: luokitus, verdict ja evidence samasta syötteestä (`arvioi`) |
+| `portti/cli.py` | komentorivin jäsennin ja ohjaus |
+| `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `kommentti`, `esto`, `tarkista-tapaukset`, `shadow-raportti` |
 
-Riippuvuussuunta: `cli` → (`luokittelu`, `verdict`, `evidence`, `kommentti`,
-`shadow`, `tapaukset`) → (`policy`, `git_diff`, `invariantit`, `github_api`)
-→ `polkumallit`. Alemmat eivät tunne ylempiä.
+Riippuvuussuunta: `cli` → `cli_komennot` → (`arviointi`, `kommentti`, `shadow`,
+`shadow_muotoilu`, `tapaukset`, `policy_lahde`) → (`policy`, `git_diff`, `invariantit`,
+`github_api`) → (`paallekkaisyys`, `polkumallit`). Alemmat eivät tunne ylempiä.
+
+## Evidence-lähde shadow-raportille
+
+Shadow-raportti lukee PR-kommentin konedatan (HTML-kommentti JSONina), ei artefaktia.
+Perustelu: kommentti säilyy PR:n mukana ja on sama jokaisella lukukerralla; artefakti vanhenee
+(90 päivää) ja sen lataus vaatii ajon tunnisteen. Konedata sisältää verdictin, tierin, head-shan,
+versiot, tilan, policyn lähteen, deny-kategoriat, portaat ja puute-lipun. PR:llä voi olla shadow- ja
+enforce-kommentti rinnakkain, kun repo vaihtoi tilaa PR:n ollessa auki: raportti valitsee PR:n headiin
+täsmäävän kommentin, muuten viimeisimmän. Ennen 0.3.0 kirjoitetut kommentit eivät sisällä kategorioita
+("ei tiedossa") eivätkä portaita; portaat johdetaan verdictistä ja tieristä.
+
+## Policyn lähde
+
+Policy ja tapaukset luetaan oletuksena base-shasta kaikissa tiloissa (`policy_lahde: base`);
+head vain eksplisiittisesti, auto tilan mukaan. Jos basessa ei ole policyä, luetaan pelkkä
+oletuspolicy ja evidence sekä kommentti kertovat sen ("oletus"); headia ei lueta koskaan ilman
+eksplisiittistä valintaa, koska oletus ei ole PR:n käsissä mutta head on. Enforce-tilassa actionin
+viimeinen askel (`esto`) palauttaa 1, kun verdict on
+PUUTE, KOVA tai LIIAN-ISO; kommentti ja artefakti on jo kirjoitettu. Shadow ei kaada koskaan.
+Punainen check on neuvoa-antava: moottori ei oleta pakollisia checkejä eikä branch
+protectionia, koska Free-tason yksityisrepossa niitä ei ole.
 
 ## Datamalli
 

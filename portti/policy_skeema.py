@@ -32,7 +32,6 @@ SKEEMA: dict[str, Any] = {
     "kielletyt_uudet_polut": [str],
     "allow": POLKUSAANTO,
     "ei_laskennassa": POLKUSAANTO,
-    "ei_laskennassa_lukkotiedostot": [str],
     "testit": [str],
     "generoidut": [str],
     "size_gate": {"max_rivit": int, "max_tiedostot": int},

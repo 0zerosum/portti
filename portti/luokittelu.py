@@ -113,7 +113,19 @@ def _valitse_tier(rivit: int, tiedostot: int, alueet: int, policy: Policy) -> st
     return TIER_YLI
 
 
+def _osuu_denyyn(tiedosto: MuutettuTiedosto, policy: Policy) -> bool:
+    polut = [tiedosto.polku] + ([tiedosto.vanha_polku] if tiedosto.vanha_polku else [])
+    return any(
+        ensimmainen_osuma(polku, kategoria.polut) is not None
+        for kategoria in policy.kova + policy.pehmea
+        for polku in polut
+    )
+
+
 def _on_vapaa_tiedosto(tiedosto: MuutettuTiedosto, policy: Policy) -> bool:
+    """Deny-osuma ei koskaan ole vapaa, vaikka polku olisi testi tai allow-listalla. Ei riipu globeista."""
+    if _osuu_denyyn(tiedosto, policy):
+        return False
     return on_testi(tiedosto.polku, policy) or saanto_osuu(tiedosto.polku, policy.allow) is not None
 
 

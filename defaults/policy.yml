@@ -6,7 +6,8 @@
 # Tuntematon avain on latausvirhe. Kova-kategoriaa `portti_itse` ei saa korvata.
 #
 # Deny-tasojen semantiikka:
-#   kova   = ei automaattihyväksyntää, nimetty katselmoija, pinoaminen pysähtyy
+#   kova   = ei automaattihyväksyntää; CTO katselmoi itse, pinoaminen pysähtyy. Neuvoa-antava:
+#            GitHub ei pakota katselmoijaa eikä checkiä Free-tason yksityisrepossa.
 #   pehmea = ei T1-automaattia mainiin, yhteenvetoon "koskettu: <alueet>"
 
 versio: 1
@@ -50,12 +51,14 @@ kielletyt_uudet_polut:
   - "**/*laheta*"
   - "**/*notify*"
 
-# T0: pelkästään näitä koskettava PR on vapaa. Kova deny menee aina edelle.
+# T0: pelkästään näitä koskettava PR on vapaa. Deny-osuma (kova tai pehmea) ei koskaan ole vapaa,
+# vaikka polku osuisi allow-globiin.
 allow:
   polut: ["docs/**", "README*", "CHANGELOG*", "LICENSE*", "fixtures/**", "*.md"]
-  paitsi: ["docs/specs/**"]
+  paitsi: ["docs/specs/**", "CLAUDE.md", ".claude/**"]
 
-# Ei lasketa substantiivisiin riveihin eikä tiedostoihin.
+# Ei lasketa substantiivisiin riveihin eikä tiedostoihin. Lukkotiedostot lasketaan: ne ovat kova-kategoria,
+# eikä allow- tai ei_laskennassa-polku saa leikata deny-polkua (latausvirhe).
 ei_laskennassa:
   polut:
     - "docs/**"
@@ -65,7 +68,6 @@ ei_laskennassa:
     - "**/__snapshots__/**"
     - "*.snap"
   paitsi: ["docs/specs/**", "CLAUDE.md", ".claude/**"]
-ei_laskennassa_lukkotiedostot: *lukkotiedostot
 
 # Testit eivät ole laskennassa, paitsi policyn `invarianttitestit`.
 # Pelkkiä testejä muuttava PR on T0 vain, jos testifunktioiden määrä ei laske.

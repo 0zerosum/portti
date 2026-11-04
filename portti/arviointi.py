@@ -33,6 +33,7 @@ def arvioi(
     luokitus = luokittele(repo_polku, base_sha, head_sha, policy, edellytykset)
     verdict = laske_verdict(luokitus)
     ratkaistu = Konteksti(
-        konteksti.repo, konteksti.pr_numero, base_sha, head_sha, konteksti.tekija, konteksti.tila
+        konteksti.repo, konteksti.pr_numero, base_sha, head_sha, konteksti.tekija,
+        konteksti.tila, konteksti.policy_lahde,
     )
     return Arvio(luokitus, verdict, rakenna_evidence(ratkaistu, policy, luokitus, verdict))

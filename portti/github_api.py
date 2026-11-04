@@ -48,7 +48,7 @@ class GitHubApi:
         return dict(tulos) if isinstance(tulos, dict) else {}
 
     def hae_suljetut_prt(self, repo: str, alkaen: str) -> list[dict[str, Any]]:
-        kentat = "number,state,mergedAt,closedAt,headRefOid"
+        kentat = "number,state,mergedAt,closedAt,headRefOid,baseRefName,isDraft"
         argumentit = [
             "pr", "list", "--repo", repo, "--state", "closed", "--limit", "500",
             "--search", f"closed:>={alkaen}", "--json", kentat,

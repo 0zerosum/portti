@@ -1,4 +1,4 @@
-name: Portti (oma shadow-ajo)
+name: Portti (oma ajo)
 
 on:
   pull_request:
@@ -13,6 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Enforce: policy ja tapaukset basesta, estävä verdict tekee checkistä punaisen.
+  # Punainen check on neuvoa-antava: tässä repossa ei ole pakollisia checkejä, CTO päättää mergestä.
   portti:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -25,5 +27,5 @@ jobs:
         uses: ./
         with:
           policy_polku: .portti/policy.yml
-          tila: shadow
+          tila: enforce
           github_token: ${{ secrets.GITHUB_TOKEN }}

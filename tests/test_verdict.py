@@ -70,10 +70,10 @@ def test_pehmea_t1_ei_ole_hyvaksyttavissa_millaan_portaalla() -> None:
     assert tulos.hyvaksyttavissa_portaalla == []
 
 
-def test_pehmea_t0_on_hyvaksyttavissa_kaikilla_portailla() -> None:
+def test_pehmea_ei_ole_hyvaksyttavissa_edes_t0_tierilla() -> None:
     tulos = laske_verdict(luokitus(deny_osumat=[PEHMEA_OSUMA], tier="T0", substantiiviset=[], rivit=0))
     assert tulos.verdict == PEHMEA
-    assert tulos.hyvaksyttavissa_portaalla == ["S0", "S1", "S2", "S3"]
+    assert tulos.hyvaksyttavissa_portaalla == []
 
 
 def test_portaat_tierin_mukaan() -> None:
@@ -82,3 +82,4 @@ def test_portaat_tierin_mukaan() -> None:
     assert hyvaksyttavissa_portaalla(VAPAA, "T1c") == ["S3"]
     assert hyvaksyttavissa_portaalla(VAPAA, "YLI") == []
     assert hyvaksyttavissa_portaalla(KOVA, "T0") == []
+    assert hyvaksyttavissa_portaalla(PEHMEA, "T0") == []
