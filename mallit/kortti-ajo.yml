@@ -1,0 +1,47 @@
+# Kuluttajarepon kortti-ajo. Kopioi polkuun .github/workflows/kortti-ajo.yml ja korvaa <PINNATTU_SHA>.
+# Käynnistys: CTO käsin (Actions > Kortti-ajo > Run workflow) tai ohjaus korjauskierroksessa
+# (workflow_dispatch GITHUB_TOKENilla, syötteinä kortti ja korjaa_pr).
+# Vaatii: Claude GitHub App asennettuna tähän repoon, salaisuus ANTHROPIC_API_KEY ja muuttuja
+# PORTTI_AJO_BUDJETTI_USD (ilman sitä ajo ei käynnisty). Sääntölohko: .portti/saannot.md.
+name: Kortti-ajo
+
+on:
+  workflow_dispatch:
+    inputs:
+      kortti:
+        description: Kortin slug (kortit/<slug>.md); työ tehdään haaraan <slug>.
+        required: true
+        type: string
+      korjaa_pr:
+        description: Korjauskierros PR-numerolle (ohjaus täyttää; tyhjä = uusi kortti).
+        required: false
+        type: string
+        default: ""
+      max_turns:
+        description: Agentin kierrosten yläraja. Oletus on paikkamerkki; päätetään pilotissa.
+        required: false
+        type: number
+        default: 50
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  kortti-ajo:
+    uses: 0zerosum/portti/.github/workflows/kortti-ajo.yml@<PINNATTU_SHA>
+    with:
+      kortti: ${{ inputs.kortti }}
+      korjaa_pr: ${{ inputs.korjaa_pr }}
+      max_turns: ${{ inputs.max_turns }}
+      malli: claude-opus-5-5
+      # Repon omat testikomennot sanatarkasti; vain nämä sallitaan agentille. Keksitty esimerkki.
+      testikomennot: |
+        python -m pytest -q
+        python -m mypy --strict sovellus
+      saantolohko_polku: .portti/saannot.md
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

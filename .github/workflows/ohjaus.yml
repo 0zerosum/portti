@@ -1,0 +1,192 @@
+name: Portti-ohjaus (uudelleenkäytettävä)
+
+# Kuluttaja kutsuu tätä omasta työnkulustaan .github/workflows/portti-ohjaus.yml
+# (on: workflow_run, workflows: [Testit, Portti], types: [completed]). Malli: mallit/portti-ohjaus.yml.
+#
+# Ajetaan kuluttajan oletushaaran työnkulkuna, joten PR ei voi muuttaa sitä. PR:n koodia ei haeta eikä
+# suoriteta: moottori haetaan portti-reposta samasta shasta, johon kutsuja on pinnannut tämän työnkulun
+# (job.workflow_repository ja job.workflow_sha), ja kaikki PR:n tieto luetaan GitHubin API:sta.
+#
+# Fail-closed: puuttuva evidence, puuttuva testitulos tai eri head vie PR:n CTO:lle (portti ohjaa).
+# Jos toinen työnkulku on vielä kesken, ajo päättyy ilman toimenpiteitä; sen valmistuminen ajaa ohjauksen
+# uudelleen. Toteutus on idempotentti: sama päätös samalle headille ei käynnistä toista korjauskierrosta.
+
+on:
+  workflow_call:
+    inputs:
+      testit_tyonkulku:
+        description: Kuluttajan testityönkulun tiedostonimi kansiossa .github/workflows.
+        type: string
+        default: testit.yml
+      portti_tyonkulku:
+        description: Kuluttajan Portti-työnkulun tiedostonimi; sen artefaktista luetaan evidence.
+        type: string
+        default: portti.yml
+      kortti_ajo_tyonkulku:
+        description: Kuluttajan kortti-ajon kutsujatyönkulku, joka käynnistetään korjauskierroksessa (workflow_dispatch).
+        type: string
+        default: kortti-ajo.yml
+      python_versio:
+        type: string
+        default: "3.11"
+
+jobs:
+  ohjaus:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: write # vain workflow_dispatch kortti-ajolle; sisältää ajojen ja artefaktin luvun
+    concurrency:
+      group: portti-ohjaus-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      TAPAHTUMAN_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+      TESTIT_TYONKULKU: ${{ inputs.testit_tyonkulku }}
+      PORTTI_TYONKULKU: ${{ inputs.portti_tyonkulku }}
+      PYTHONSAFEPATH: "1"
+    steps:
+      - name: Tarkista moottorin pinnaus
+        env:
+          MOOTTORIN_REPO: ${{ job.workflow_repository }}
+          MOOTTORIN_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [ -z "$MOOTTORIN_REPO" ] || [ -z "$MOOTTORIN_SHA" ]; then
+            echo "::error::job.workflow_repository tai job.workflow_sha puuttuu; moottoria ei voi hakea pinnatusta shasta"
+            exit 1
+          fi
+          echo "moottori: $MOOTTORIN_REPO@$MOOTTORIN_SHA"
+
+      - name: Hae moottori pinnatusta shasta (ei PR:n koodia)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: portti-moottori
+          persist-credentials: false
+
+      - name: Asenna Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ inputs.python_versio }}
+
+      - name: Asenna moottorin riippuvuudet
+        run: python -m pip install --quiet --disable-pip-version-check "pyyaml>=6.0,<7"
+
+      - name: Ratkaise PR ja molempien työnkulkujen tila samalle headille
+        id: tila
+        run: |
+          set -euo pipefail
+          pr="$TAPAHTUMAN_PR"
+          if [ -z "$pr" ]; then
+            # Forkin PR: workflow_run.pull_requests on tyhjä, joten PR haetaan head-shan perusteella.
+            pr="$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --jq '[.[] | select(.state == "open")] | .[0].number // empty')"
+          fi
+          if [ -z "$pr" ]; then
+            echo "headille $HEAD_SHA ei ole avointa PR:ää, ei toimenpiteitä"
+            echo "jatka=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ajo() {
+            # Viimeisin pull_request-ajo annetulle työnkululle ja headille: "<id> <status> <conclusion>".
+            gh api "repos/$REPO/actions/workflows/$1/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=20" \
+              --jq '[.workflow_runs[]] | sort_by(.id) | last | select(. != null) | "\(.id) \(.status) \(.conclusion)"' \
+              || true
+          }
+          testit="$(ajo "$TESTIT_TYONKULKU")"
+          portti="$(ajo "$PORTTI_TYONKULKU")"
+          echo "PR #$pr, testit: ${testit:-puuttuu}, portti: ${portti:-puuttuu}"
+          for rivi in "$testit" "$portti"; do
+            if [ -n "$rivi" ] && [ "$(echo "$rivi" | cut -d' ' -f2)" != "completed" ]; then
+              echo "toinen työnkulku on kesken; sen valmistuminen ajaa ohjauksen uudelleen"
+              echo "jatka=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          case "$(echo "$testit" | cut -d' ' -f3)" in
+            success) testien_tila=success ;;
+            failure) testien_tila=failure ;;
+            *) testien_tila=puuttuu ;;
+          esac
+          {
+            echo "pr=$pr"
+            echo "testit=$testien_tila"
+            echo "portti_ajo=$(echo "$portti" | cut -d' ' -f1)"
+            echo "jatka=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Hae PR:n head, labelit, forkkitieto ja muuttuneet polut
+        if: steps.tila.outputs.jatka == 'true'
+        id: pr
+        env:
+          PR: ${{ steps.tila.outputs.pr }}
+        run: |
+          set -euo pipefail
+          tiedot="$(gh pr view "$PR" --repo "$REPO" --json headRefOid,headRefName,isCrossRepository,labels)"
+          head_nyt="$(echo "$tiedot" | jq -r '.headRefOid')"
+          if [ "$head_nyt" != "$HEAD_SHA" ]; then
+            echo "PR:n head on jo $head_nyt, tämä ajo koski headia $HEAD_SHA; uudempi ajo ohjaa"
+            echo "jatka=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)' > polut.txt
+          echo "muuttuneita polkuja: $(wc -l < polut.txt | tr -d ' ')"
+          {
+            echo "haara=$(echo "$tiedot" | jq -r '.headRefName')"
+            echo "forkki=$(echo "$tiedot" | jq -r '.isCrossRepository')"
+            echo "labelit=$(echo "$tiedot" | jq -r '[.labels[].name] | join(",")')"
+            echo "jatka=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Hae evidence Portti-ajon artefaktista
+        if: steps.pr.outputs.jatka == 'true' && steps.tila.outputs.portti_ajo != ''
+        env:
+          PORTTI_AJO: ${{ steps.tila.outputs.portti_ajo }}
+          PR: ${{ steps.tila.outputs.pr }}
+        run: |
+          # Puuttuva artefakti ei kaada ajoa: ohjaus tulkitsee puuttuvan evidencen fail-closed (CTO).
+          gh run download "$PORTTI_AJO" --repo "$REPO" --name "portti-evidence-pr$PR" --dir evidence \
+            || echo "evidence-artefaktia ei saatu Portti-ajosta $PORTTI_AJO"
+
+      - name: Päätä ohjaus (portti ohjaa)
+        if: steps.pr.outputs.jatka == 'true'
+        env:
+          PYTHONPATH: portti-moottori
+          TESTIT: ${{ steps.tila.outputs.testit }}
+          LABELIT: ${{ steps.pr.outputs.labelit }}
+          FORKKI: ${{ steps.pr.outputs.forkki }}
+        run: |
+          liput=()
+          [ "$FORKKI" = "true" ] && liput+=(--forkki)
+          python -m portti.cli ohjaa --head "$HEAD_SHA" --testit "$TESTIT" --evidence evidence/portti-evidence.json \
+            --polut polut.txt --labelit "$LABELIT" --paatos portti-paatos.json "${liput[@]}"
+          cat portti-paatos.json
+
+      - name: Tallenna päätös artefaktiksi
+        if: steps.pr.outputs.jatka == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: portti-paatos-pr${{ steps.tila.outputs.pr }}
+          path: portti-paatos.json
+          overwrite: true
+
+      - name: Toteuta päätös (labelit, katselmoija, kommentti, korjauskierros)
+        if: steps.pr.outputs.jatka == 'true'
+        env:
+          PYTHONPATH: portti-moottori
+          PR: ${{ steps.tila.outputs.pr }}
+          KATSELMOIJA_CTO: ${{ vars.PORTTI_KATSELMOIJA_CTO }}
+          KATSELMOIJA_T1: ${{ vars.PORTTI_KATSELMOIJA_T1 }}
+          KORTTI_AJO: ${{ inputs.kortti_ajo_tyonkulku }}
+          KORTTI: ${{ steps.pr.outputs.haara }}
+          OLETUSHAARA: ${{ github.event.repository.default_branch }}
+        run: |
+          python -m portti.cli ohjaus-toteuta --paatos portti-paatos.json --repo "$REPO" --pr "$PR" \
+            --katselmoija-cto "$KATSELMOIJA_CTO" --katselmoija-t1 "$KATSELMOIJA_T1" \
+            --kortti-ajo "$KORTTI_AJO" --kortti "$KORTTI" --oletushaara "$OLETUSHAARA"

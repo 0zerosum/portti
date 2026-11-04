@@ -1,0 +1,193 @@
+name: Kortti-ajo (uudelleenkäytettävä)
+
+# Rakentaa hyväksytyn kortin PR:ksi yrityksen API-avaimella ilman ihmisen istuntoa, tai korjaa agentin PR:n
+# ohjauksen korjauskierroksessa. Kuluttaja kutsuu tätä omasta .github/workflows/kortti-ajo.yml:stään
+# (on: workflow_dispatch). Malli: mallit/kortti-ajo.yml. Prompti on ajo/prompti.md tästä samasta shasta.
+#
+# Pinnaus: anthropics/claude-code-action v1.0.268 (julkaistu 2026-11-04), sha c0949c50a78c1ec8ce2647db36629b870e715d0c.
+# Pushit ja PR:n avaus tehdään Claude GitHub Appin tokenilla (OIDC-vaihto, id-token: write), jotta PR
+# käynnistää kuluttajan Testit- ja Portti-työnkulut. GITHUB_TOKENia ei käytetä pushiin.
+#
+# Main-vahti havaitsee, jos oletushaara muuttui ajon aikana, mutta ei estä sitä: ilmaistason yksityisrepossa
+# ei ole haarasuojausta.
+
+on:
+  workflow_call:
+    inputs:
+      kortti:
+        description: Kortin slug. Kortti on kuluttajarepon tiedosto kortit/<slug>.md ja työ tehdään haaraan <slug>.
+        type: string
+        required: true
+      korjaa_pr:
+        description: Korjauskierros annetulle PR-numerolle (tyhjä = uusi kortti). Ohjaus täyttää tämän.
+        type: string
+        default: ""
+      malli:
+        type: string
+        default: claude-opus-5-5
+      max_turns:
+        description: Agentin kierrosten yläraja (claude --max-turns).
+        type: number
+        required: true
+      testikomennot:
+        description: Repon testikomennot, yksi riviä kohden. Vain nämä komennot sallitaan agentille sanatarkasti.
+        type: string
+        required: true
+      saantolohko_polku:
+        description: Kuluttajan yhteinen sääntölohko, joka liitetään promptiin sanatarkasti. Puuttuminen kaataa ajon.
+        type: string
+        default: .portti/saannot.md
+      aikakatkaisu_min:
+        type: number
+        default: 60
+      python_versio:
+        type: string
+        default: "3.11"
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  kortti-ajo:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.aikakatkaisu_min }}
+    concurrency:
+      group: kortti-ajo-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write # Claude GitHub Appin tokenin OIDC-vaihto
+      actions: read # kaatuneiden testien lokit korjauskierroksessa (mcp__github_ci)
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      OLETUSHAARA: ${{ github.event.repository.default_branch }}
+      KORTTI: ${{ inputs.kortti }}
+      KORJAA_PR: ${{ inputs.korjaa_pr }}
+      PYTHONSAFEPATH: "1"
+    steps:
+      - name: Tarkista syötteet ja budjetti
+        env:
+          BUDJETTI: ${{ vars.PORTTI_AJO_BUDJETTI_USD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BUDJETTI" ]; then
+            echo "::error::Muuttuja PORTTI_AJO_BUDJETTI_USD puuttuu; kortti-ajo ei käynnisty ilman budjettia"
+            exit 1
+          fi
+          if ! echo "$BUDJETTI" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+            echo "::error::PORTTI_AJO_BUDJETTI_USD ei ole luku"
+            exit 1
+          fi
+          if ! echo "$KORTTI" | grep -Eq '^[a-z0-9][a-z0-9._-]{0,63}$'; then
+            echo "::error::Kortin slug ei kelpaa (sallittu: pienet kirjaimet, numerot, . _ -)"
+            exit 1
+          fi
+          if [ -n "$KORJAA_PR" ] && ! echo "$KORJAA_PR" | grep -Eq '^[0-9]+$'; then
+            echo "::error::korjaa_pr ei ole numero"
+            exit 1
+          fi
+
+      - name: Hae kuluttajarepo oletushaarasta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Hae portti pinnatusta shasta (prompti ja kokoaja)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: portti-moottori
+          persist-credentials: false
+
+      - name: Asenna Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ inputs.python_versio }}
+
+      - name: Tallenna oletushaaran sha (main-vahti)
+        id: vahti
+        run: echo "sha=$(gh api "repos/$REPO/branches/$OLETUSHAARA" --jq .commit.sha)" >> "$GITHUB_OUTPUT"
+
+      - name: Tarkista kortti ja sääntölohko
+        env:
+          SAANNOT: ${{ inputs.saantolohko_polku }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "kortit/$KORTTI.md" ]; then
+            echo "::error::kortit/$KORTTI.md puuttuu oletushaarasta"
+            exit 1
+          fi
+          if [ ! -f "$SAANNOT" ]; then
+            echo "::error::sääntölohko $SAANNOT puuttuu; kortti-ajo ei käynnisty ilman sitä"
+            exit 1
+          fi
+
+      - name: Kokoa prompti ja työkalulistat
+        id: prompti
+        env:
+          TESTIKOMENNOT: ${{ inputs.testikomennot }}
+          SAANNOT: ${{ inputs.saantolohko_polku }}
+        run: |
+          set -euo pipefail
+          python -I portti-moottori/ajo/kokoa_prompti.py --pohja portti-moottori/ajo/prompti.md \
+            --kortti "$KORTTI" --korjaa-pr "$KORJAA_PR" --oletushaara "$OLETUSHAARA" --repo "$REPO" \
+            --testikomennot "$TESTIKOMENNOT" --saannot "$SAANNOT" \
+            --prompti "$RUNNER_TEMP/kortti-prompti.md" --tyokalut "$RUNNER_TEMP/tyokalut.txt" \
+            --kielletyt "$RUNNER_TEMP/kielletyt.txt"
+          {
+            echo "prompti<<PORTTI_PROMPTI_LOPPU"
+            cat "$RUNNER_TEMP/kortti-prompti.md"
+            echo "PORTTI_PROMPTI_LOPPU"
+            echo "tyokalut=$(cat "$RUNNER_TEMP/tyokalut.txt")"
+            echo "kielletyt=$(cat "$RUNNER_TEMP/kielletyt.txt")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Aja agentti (claude-code-action, pinnattu)
+        id: agentti
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1.0.268
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompti.outputs.prompti }}
+          # Ohjauksen käynnistämä korjauskierros tulee GITHUB_TOKENilla, jolloin toimija on github-actions[bot].
+          allowed_bots: github-actions
+          additional_permissions: |
+            actions: read
+          claude_args: |
+            --model ${{ inputs.malli }}
+            --max-turns ${{ inputs.max_turns }}
+            --max-budget-usd ${{ vars.PORTTI_AJO_BUDJETTI_USD }}
+            --allowedTools "${{ steps.prompti.outputs.tyokalut }}"
+            --disallowedTools "${{ steps.prompti.outputs.kielletyt }}"
+
+      - name: Main-vahti (havaitsee, ei estä)
+        if: always()
+        env:
+          SHA_ENNEN: ${{ steps.vahti.outputs.sha }}
+          KATSELMOIJA_CTO: ${{ vars.PORTTI_KATSELMOIJA_CTO }}
+        run: |
+          set -euo pipefail
+          sha_jalkeen="$(gh api "repos/$REPO/branches/$OLETUSHAARA" --jq .commit.sha)"
+          if [ -z "$SHA_ENNEN" ] || [ "$sha_jalkeen" = "$SHA_ENNEN" ]; then
+            echo "oletushaara $OLETUSHAARA ennallaan ($sha_jalkeen)"
+            exit 0
+          fi
+          viesti="Main-vahti: oletushaara $OLETUSHAARA muuttui kortti-ajon aikana ($SHA_ENNEN -> $sha_jalkeen). Vahti havaitsee eikä estä; tarkista haaran historia."
+          if [ -n "$KATSELMOIJA_CTO" ]; then
+            viesti="@$KATSELMOIJA_CTO $viesti"
+          fi
+          pr="$KORJAA_PR"
+          if [ -z "$pr" ]; then
+            pr="$(gh pr list --repo "$REPO" --head "$KORTTI" --state open --json number --jq '.[0].number // empty')"
+          fi
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --repo "$REPO" --body "$viesti"
+          else
+            echo "::warning::PR:ää ei löytynyt kommenttia varten"
+          fi
+          echo "::error::$viesti"
+          exit 1

@@ -1,0 +1,31 @@
+# Kuluttajarepon Portti-työnkulku (moottori 0.3.0 tai uudempi). Kopioi polkuun .github/workflows/portti.yml.
+# Korvaa <PINNATTU_SHA> julkaistun version täydellä commit-shalla; ei tagia eikä haaraa. Shan vaihto on PR,
+# joka osuu kova-kategoriaan portti_itse. Nimen on oltava "Portti": portti-ohjaus.yml viittaa siihen nimellä.
+name: Portti
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: portti-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  portti:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: 0zerosum/portti@<PINNATTU_SHA>
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # shadow vain kommentoi; enforce kaataa esto-askeleen estävästä verdictistä (PUUTE, KOVA, LIIAN-ISO).
+          tila: shadow
+          # Policy ja regressiotapaukset luetaan base-haarasta, jotta PR ei voi keventää omaa luokitustaan.
+          policy_lahde: base
+          policy_polku: .portti/policy.yml
+          tapaukset_polku: .portti/tapaukset.yml

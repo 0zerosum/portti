@@ -1,0 +1,28 @@
+# Kuluttajarepon ohjaustyönkulku. Kopioi polkuun .github/workflows/portti-ohjaus.yml ja korvaa <PINNATTU_SHA>.
+# Ajetaan oletushaaran työnkulkuna (workflow_run), joten PR ei voi muuttaa sitä eikä sen pinnausta.
+# Käynnistyy, kun Testit tai Portti valmistuu; ohjaus odottaa, kunnes molemmat ovat valmiit samalle headille.
+# Katselmoijat tulevat repon muuttujista PORTTI_KATSELMOIJA_CTO ja PORTTI_KATSELMOIJA_T1.
+name: Portti-ohjaus
+
+on:
+  workflow_run:
+    workflows: [Testit, Portti]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write # vain workflow_dispatch kortti-ajolle korjauskierroksessa
+
+concurrency:
+  group: portti-ohjaus-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  ohjaus:
+    uses: 0zerosum/portti/.github/workflows/ohjaus.yml@<PINNATTU_SHA>
+    with:
+      testit_tyonkulku: testit.yml
+      portti_tyonkulku: portti.yml
+      kortti_ajo_tyonkulku: kortti-ajo.yml
