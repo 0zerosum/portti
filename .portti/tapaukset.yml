@@ -24,3 +24,12 @@ tapaukset:
     head: e2bdd67975946cf5cb232e5a7c547dd63fd0c554
     odotettu_verdict: VAPAA
     odotettu_tier: T0
+  - nimi: CLAUDE.md on KOVA (agenttiohjeet)
+    base: a988bd83327cde458c2e5e62140dd7a38d5f928c
+    head: cf319f8a642a20e3e42098631d7cf8b56d498130
+    odotettu_verdict: KOVA
+  - nimi: ohjaus.yml ja kortti-ajo.yml portti-repossa ovat KOVA (ci)
+    base: 778ca75fc79e6d3b722427ece9b28e65e95bfb11
+    head: 89dd520f6c7e7d6b5982e863cf5be1db5e9d9169
+    odotettu_verdict: KOVA
+    odotettu_tier: YLI
