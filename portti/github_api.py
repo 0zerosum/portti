@@ -42,8 +42,11 @@ class GitHubApi:
         polku = f"repos/{repo}/issues/comments/{kommentti_id}"
         self._json(["api", "-X", "PATCH", polku, "--input", "-"], json.dumps({"body": teksti}))
 
+    def _aja(self, argumentit: list[str]) -> None:
+        self._suorita(argumentit, None)
+
     def hae_pr(self, repo: str, pr_numero: int) -> dict[str, Any]:
-        kentat = "isDraft,mergeable,headRefOid,baseRefOid,author"
+        kentat = "isDraft,mergeable,headRefOid,baseRefOid,author,labels,headRefName,isCrossRepository"
         tulos = self._json(["pr", "view", str(pr_numero), "--repo", repo, "--json", kentat])
         return dict(tulos) if isinstance(tulos, dict) else {}
 
@@ -54,3 +57,26 @@ class GitHubApi:
             "--search", f"closed:>={alkaen}", "--json", kentat,
         ]
         return self._json(argumentit) or []
+
+    def hae_labelit(self, repo: str) -> list[str]:
+        tulos = self._json(["label", "list", "--repo", repo, "--limit", "500", "--json", "name"]) or []
+        return [str(label["name"]) for label in tulos]
+
+    def luo_label(self, repo: str, nimi: str, vari: str, kuvaus: str) -> None:
+        self._aja(["label", "create", nimi, "--repo", repo, "--color", vari, "--description", kuvaus])
+
+    def lisaa_labelit(self, repo: str, pr_numero: int, labelit: list[str]) -> None:
+        self._aja(["pr", "edit", str(pr_numero), "--repo", repo, "--add-label", ",".join(labelit)])
+
+    def poista_labelit(self, repo: str, pr_numero: int, labelit: list[str]) -> None:
+        self._aja(["pr", "edit", str(pr_numero), "--repo", repo, "--remove-label", ",".join(labelit)])
+
+    def pyyda_katselmoija(self, repo: str, pr_numero: int, tunnus: str) -> None:
+        self._aja(["pr", "edit", str(pr_numero), "--repo", repo, "--add-reviewer", tunnus])
+
+    def kaynnista_tyonkulku(self, repo: str, tiedosto: str, viite: str, syotteet: dict[str, str]) -> None:
+        """workflow_dispatch kuluttajan työnkululle; GITHUB_TOKEN saa käynnistää sen (actions: write)."""
+        argumentit = ["workflow", "run", tiedosto, "--repo", repo, "--ref", viite]
+        for avain, arvo in sorted(syotteet.items()):
+            argumentit += ["-f", f"{avain}={arvo}"]
+        self._aja(argumentit)

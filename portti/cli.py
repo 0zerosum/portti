@@ -1,4 +1,7 @@
-"""Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti. Toteutukset cli_komennot.py:ssä."""
+"""Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti, ohjaa, ohjaus-toteuta.
+
+Toteutukset ovat cli_komennot.py:ssä ja cli_ohjaus.py:ssä.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +10,7 @@ import sys
 from pathlib import Path
 
 from portti.cli_komennot import komento_arvioi, komento_esto, komento_kommentti, komento_shadow, komento_tapaukset
+from portti.cli_ohjaus import komento_ohjaa, komento_ohjaus_toteuta, lisaa_ohjaus_komennot
 from portti.github_api import GitHubApi
 from portti.policy_lahde import LAHTEET, TILAT
 from portti.version import VERSIO
@@ -68,6 +72,7 @@ def rakenna_jasennin() -> argparse.ArgumentParser:
     _lisaa_esto(alikomennot)
     _lisaa_tapaukset(alikomennot)
     _lisaa_shadow(alikomennot)
+    lisaa_ohjaus_komennot(alikomennot)
     return jasennin
 
 
@@ -82,6 +87,10 @@ def main(argv: list[str] | None = None, api: GitHubApi | None = None) -> int:
         return komento_esto(argumentit)
     if argumentit.komento == "tarkista-tapaukset":
         return komento_tapaukset(argumentit)
+    if argumentit.komento == "ohjaa":
+        return komento_ohjaa(argumentit)
+    if argumentit.komento == "ohjaus-toteuta":
+        return komento_ohjaus_toteuta(argumentit, api)
     return komento_shadow(argumentit, api)
 
 
