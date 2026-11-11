@@ -56,7 +56,7 @@ jobs:
       alkuperainen_malli: ${{ inputs.alkuperainen_malli }}
       max_turns: ${{ inputs.max_turns }}
       # Repon omat asennus- ja testikomennot sanatarkasti, asennus ensin; vain nämä sallitaan agentille.
-      # Ei lainaus-, ohjaus- eikä erotinmerkkejä. Keksitty esimerkki.
+      # Ei lainaus-, ohjaus-, erotin- eikä jokerimerkkejä. Keksitty esimerkki.
       testikomennot: |
         python -m pip install -r requirements-dev.txt
         python -m pytest -q
