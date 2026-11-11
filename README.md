@@ -5,8 +5,9 @@ jokaisessa kuluttajarepossa. Ei LLM:ää, ei hyväksyntää: moottori laskee fak
 soveltaa sääntöä ja kirjoittaa evidence-JSONin sekä yhden päivittyvän PR-kommentin.
 Versiosta 0.4.0 alkaen [ohjaus](#ohjaus) päättää samoista faktoista deterministisesti, minne PR
 menee (katselmoitavaksi, CTO:lle vai agentille korjattavaksi), ja erillinen [kortti-ajo](#kortti-ajo)
-rakentaa hyväksytyn kortin PR:ksi ilman ihmisen istuntoa. Agenttien ja ihmisten PR:t kulkevat portin
-ja ohjauksen kautta ennen ihmisen katselmointia.
+rakentaa hyväksytyn kortin PR:ksi ilman ihmisen istuntoa. Kortti-ajon malli valitaan deterministisesti
+([mallin valinta](#mallin-valinta)): koodia ei kirjoiteta Opusta heikommalla mallilla. Agenttien ja ihmisten
+PR:t kulkevat portin ja ohjauksen kautta ennen ihmisen katselmointia.
 
 ## Mitä moottori tekee
 
@@ -170,12 +171,17 @@ laskennasta pois, mutta deny osuu siihen silti, eikä T0 synny ilman allow-osuma
 - `portti ohjaus-edellinen --repo <omistaja/repo> --pr <n> [--tuloste <json>]` lukee PR:n edellisen
   ohjauspäätöksen ohjauskommentin konedatasta (head, toimenpide, kierros); `null`, jos päätöstä ei ole.
 - `portti ohjaa --head <sha> --testit success|failure|puuttuu --evidence <json> --polut <tiedosto>
-  [--labelit a,b] [--forkki] [--edellinen <json>] [--paatos <json>]` päättää ohjauksen ilman verkkoa; tuloste on
-  järjestetty päätös-JSON ilman tunnuksia. Puuttuva tai kelvoton evidence ei kaada komentoa vaan vie CTO:lle.
-  `--edellinen` estää saman korjauskierroksen käynnistämisen kahdesti samalle headille.
+  [--labelit a,b] [--haara <haara>] [--forkki] [--edellinen <json>] [--paatos <json>]` päättää ohjauksen ilman
+  verkkoa; tuloste on järjestetty päätös-JSON ilman tunnuksia. Puuttuva tai kelvoton evidence ei kaada komentoa
+  vaan vie CTO:lle. `--edellinen` estää saman korjauskierroksen käynnistämisen kahdesti samalle headille.
 - `portti ohjaus-toteuta --paatos <json> --repo <omistaja/repo> --pr <n> [--katselmoija-cto <tunnus>]
-  [--katselmoija-t1 <tunnus>] [--kortti-ajo kortti-ajo.yml --kortti <slug> --oletushaara main]` soveltaa
-  päätöksen: labelit, katselmoijapyyntö, ohjauskommentti ja korjauskierroksen käynnistys.
+  [--katselmoija-t1 <tunnus>] [--kortti-ajo kortti-ajo.yml --oletushaara main]` soveltaa päätöksen: labelit,
+  katselmoijapyyntö, ohjauskommentti ja korjauskierroksen käynnistys päätöksen kortilla ja mallilla.
+- `portti malli --kortti <polku> [--kasin <arvo>] [--alkuperainen <arvo>] [--json]` valitsee kortti-ajon mallin
+  [mallipäätöksen](#mallin-valinta) mukaan ja tulostaa mallitunnisteen. Kielletty tai tyhjä arvo palauttaa 1 ja
+  kirjaa syyn.
+- `portti kortin-tila --kortti <polku> [--vaadi hyväksytty]` tulostaa kortin tilarivin arvon; `--vaadi` palauttaa
+  1, jos tila on muu.
 
 ## Ohjaus
 
@@ -196,35 +202,39 @@ ohjaustyönkulun. Ohjaus on fail-closed: jos tieto puuttuu tai ei täsmää, PR 
 3. `portti ohjaus-edellinen` lukee edellisen päätöksen ohjauskommentista, `portti ohjaa` kirjoittaa päätös-JSONin
    (artefakti `portti-paatos-pr<n>`), ja `portti ohjaus-toteuta` soveltaa sen: labelit (luo puuttuvat),
    katselmoijapyyntö, yksi päivittyvä ohjauskommentti ja uudessa korjauskierroksessa `workflow_dispatch` kuluttajan
-   `kortti-ajo.yml`:lle syötteillä `kortti` (PR:n haara) ja `korjaa_pr`.
+   `kortti-ajo.yml`:lle syötteillä `kortti` (PR:n haarasta `feature/<slug>`), `korjaa_pr` ja `alkuperainen_malli`
+   (PR:n labelista `malli-<nimi>`).
 
 ### Päätöstaulu
 
 Syötteet: evidence (tai tieto, että se puuttuu), testityönkulun lopputulos PR:n headille (success, failure,
 puuttuu; keskeytetty tai muu tulos on puuttuu), PR:n muuttuneet polut, PR:n labelit (`agentti` kertoo agentin
-PR:n, `korjauskierros-<n>` laskee tehdyt kierrokset), forkkitieto ja edellinen ohjauspäätös (head, toimenpide,
-kierros). Rivit tarkistetaan järjestyksessä.
+PR:n, `korjauskierros-<n>` laskee tehdyt kierrokset, `malli-<nimi>` kertoo alkuperäisen ajon mallin), PR:n haara,
+forkkitieto ja edellinen ohjauspäätös (head, toimenpide, kierros). Rivit tarkistetaan järjestyksessä.
 
 | Rivi | Ehto | Toimenpide | Labelit | Katselmoijan rooli |
 |---|---|---|---|---|
 | a | evidence puuttuu tai ei kelpaa; testien tila puuttuu; `evidence.head_sha` ≠ PR:n head; PR muuttaa polkuja `.github/**` tai `.portti/**` | CTO | `katselmoitavaksi`, `kova` | cto |
 | b | verdict KOVA | CTO | `katselmoitavaksi`, `kova` | cto |
 | c | testit failure tai verdict PUUTE (luonnos, konflikti): ihmisen PR | korjattava (kommentti tekijälle) | `korjattava` | – |
-| c | sama, agentin PR forkista | CTO | `katselmoitavaksi`, `jumissa` | cto |
 | c | sama, agentin PR, ja edellinen päätös käynnisti kierroksen n tälle samalle headille | korjauskierros n jatkuu, uutta ajoa ei käynnistetä | `korjauskierros-<n>` | – |
-| c | sama, agentin PR ja kierroksia < 2 | uusi korjauskierros, kortti-ajo käynnistetään | `korjauskierros-<n>` | – |
-| c | sama, agentin PR ja kierroksia ≥ 2 | CTO | `katselmoitavaksi`, `jumissa` | cto |
-| d | verdict LIIAN-ISO: ihmisen PR, tai agentin PR forkista (`jumissa`) | CTO | `katselmoitavaksi`, `liian-iso` | cto |
-| d | sama, agentin PR, ja edellinen päätös käynnisti kierroksen n tälle samalle headille | korjauskierros n jatkuu, uutta ajoa ei käynnistetä | `korjauskierros-<n>` | – |
-| d | sama, agentin PR ja kierroksia < 1 | uusi korjauskierros, ohje "pienennä muutos kortin rajaukseen" | `korjauskierros-1` | – |
-| d | sama, agentin PR ja kierroksia ≥ 1 | CTO | `katselmoitavaksi`, `liian-iso` | cto |
+| c | sama, agentin PR, kierroksia < 2 ja käynnistyksen tiedot ovat koossa | uusi korjauskierros, kortti-ajo käynnistetään alkuperäisen ajon mallilla | `korjauskierros-<n>` | – |
+| c | sama, agentin PR muuten: forkista, kierroksia ≥ 2 tai käynnistyksen tieto puuttuu | CTO | `katselmoitavaksi`, `jumissa` | cto |
+| d | verdict LIIAN-ISO: agentin PR, ja edellinen päätös käynnisti kierroksen n tälle samalle headille | korjauskierros n jatkuu, uutta ajoa ei käynnistetä | `korjauskierros-<n>` | – |
+| d | sama, agentin PR, kierroksia < 1 ja käynnistyksen tiedot ovat koossa | uusi korjauskierros, ohje "pienennä muutos kortin rajaukseen" | `korjauskierros-1` | – |
+| d | sama muuten: ihmisen PR, forkista, kierroksia ≥ 1 tai käynnistyksen tieto puuttuu | CTO | `katselmoitavaksi`, `liian-iso` | cto |
 | e | verdict PEHMEÄ tai VAPAA ja testit success | katselmoitavaksi | `katselmoitavaksi`, `tier-<tier>` | T0–T1c → t1, muut → cto |
 | – | mikä tahansa muu tila, myös tuntematon tier | CTO | `katselmoitavaksi`, `kova` | cto |
+
+Käynnistyksen tiedot: PR:n haara on muotoa `feature/<slug>` ja PR:llä on täsmälleen yksi sallittu label
+`malli-<nimi>` (opus tai fable). Jos haara on muu tai label puuttuu, on moniselitteinen tai nimeää kielletyn
+mallin, uutta korjauskierrosta ei käynnistetä vaan PR menee CTO:lle.
 
 Jokainen toimenpide, joka vie PR:n ihmiselle (CTO, katselmoitavaksi), asettaa labelin `katselmoitavaksi`.
 Korjauskierrokset luetaan labeleista `korjauskierros-<n>` (suurin n); niitä ei koskaan poisteta, koska ne ovat
 laskuri. Tilalabelit `katselmoitavaksi`, `kova`, `jumissa`, `korjattava`, `liian-iso` ja `tier-*` poistetaan,
-kun tila vaihtuu; `agentti` ja vieraat labelit jäävät. Forkin PR ei koskaan käynnistä korjauskierrosta.
+kun tila vaihtuu; `agentti`, `malli-<nimi>` ja vieraat labelit jäävät. Forkin PR ei koskaan käynnistä
+korjauskierrosta.
 
 Katselmoijien tunnukset eivät ole repossa: ne luetaan kuluttajarepon muuttujista `PORTTI_KATSELMOIJA_CTO` ja
 `PORTTI_KATSELMOIJA_T1`. Jos T1 puuttuu, käytetään CTO:ta. Jos CTO puuttuu, katselmoijaa ei pyydetä ja
@@ -252,48 +262,98 @@ concurrency on head-haaraa kohden ilman keskeytystä.
 - Ohjauskommentin väärentämistä: edellinen päätös luetaan PR:n kommentista, joten kommentointioikeudella voi estää
   korjauskierroksen käynnistymisen tai CTO:lle siirtymisen (PR jää tilaan korjauskierros). Katselmoitavaksi-päätökseen
   tai katselmoijan rooliin edellinen päätös ei vaikuta.
+- Labelin `malli-<nimi>` vaihtamista: triage-oikeudella labelin voi vaihtaa, jolloin korjauskierros ajetaan toisella
+  sallitulla mallilla. Opusta heikompaan malliin label ei vie: moottori ja `portti malli` hyväksyvät vain sallitut nimet.
+
+## Mallin valinta
+
+CTO:n mallipäätös 6.11.2026 on moottorissa deterministisenä funktiona (`portti/malli.py`, komento `portti malli`).
+Sallitut nimet ja tunnisteet ovat yhdessä vakiossa `SALLITUT_MALLIT`; sen muutos on portti-repossa kova.
+
+- Koodia, kortteja ja suunnitelmia ei kirjoiteta Sonnetilla eikä Haikulla.
+- Oletusmalli on Opus (`claude-opus-5-5`).
+- Fable (`claude-fable-5-1`) vain kahdella tavalla: kortissa on kortin mukana hyväksytty rivi `- Malli: fable`, tai
+  ihminen käynnistää ajon käsin ja valitsee fablen.
+- Mikä tahansa muu arvo estää ajon, ja syy kirjataan.
+- Korjauskierros käyttää samaa mallia kuin alkuperäinen ajo. Tarkistaja on aina Opus, puhtaalla kontekstilla.
+
+| Syöte | Tulos |
+|---|---|
+| kortissa ei ole riviä `- Malli:` | `claude-opus-5-5`, lähde oletus |
+| `- Malli: opus`, `- Malli: claude-opus-5-5` tai `- Malli: opus (oletus; fable vain hyväksytyllä päätöksellä)` | `claude-opus-5-5`, lähde kortti |
+| `- Malli: fable` tai `- Malli: claude-fable-5-1` | `claude-fable-5-1`, lähde kortti |
+| `--kasin opus` tai `--kasin fable` | valittu malli, lähde käsin; voittaa kortin rivin |
+| `--alkuperainen opus` tai `--alkuperainen fable` | alkuperäisen ajon malli, lähde alkuperäinen ajo; voittaa kortin rivin |
+| sonnet, haiku, muu mallitunniste, vanhempi Opus, tyhjä arvo, kaksi riviä `- Malli:`, `--kasin` ja `--alkuperainen` yhdessä | exit-koodi 1, syy virhetulosteessa, ei mallitunnistetta |
+
+Arvo luetaan kirjainkoosta ja ympäröivistä väleistä riippumatta, ja sulkuhuomautus rivin lopussa jätetään pois.
+Kortin rivi tarkistetaan aina, kun se on olemassa: kortti, jossa on kielletty malli, ei käynnistä ajoa, vaikka
+malli annettaisiin käsin. `portti malli --json` kertoo lisäksi mallin lähteen, tarkistajan mallin ja sallitut
+tunnisteet, joista kortti-ajo lukitsee aliagenttien mallin ja tarkistaa ajon jälkeen käytetyt mallit.
+
+Mitä mallin valinta ei estä: `portti malli` päättää, millä mallilla ajo käynnistetään, mutta ei valvo ajoa.
+Opus 5.5:n ja Fablen turvaluokitin voi siirtää ajon kesken vanhempaan Opus-malliin. Kortti-ajon yhteenveto lukee
+ajon käyttämät mallit ja kaataa ajon näkyvästi, jos jokin niistä ei ole sallittu tunniste.
 
 ## Kortti-ajo
 
 Kortti-ajo on erillinen komponentti ([ARCHITECTURE.md](ARCHITECTURE.md)): `anthropics/claude-code-action`
 pinnattuna commit-shaan (v1.0.268, julkaistu 2026-11-04, sha `c0949c50a78c1ec8ce2647db36629b870e715d0c`),
-prompti `ajo/prompti.md` ja kokoaja `ajo/kokoa_prompti.py` samasta shasta kuin työnkulku. Moottori ei riipu siitä.
+prompti `ajo/prompti.md`, kokoaja `ajo/kokoa_prompti.py` ja yhteenveto `ajo/ajon_yhteenveto.py` samasta shasta
+kuin työnkulku. Moottori ei riipu siitä. Koodia kirjoittava ajo kulkee API-reittiä yrityksen API-avaimella, ei
+kenenkään henkilökohtaisella tilillä.
 
 ### Kulku
 
-1. CTO käynnistää kuluttajan `kortti-ajo.yml`:n (Actions → Run workflow, syöte `kortti`), tai ohjaus käynnistää
-   sen korjauskierroksessa (`kortti` = PR:n haara, `korjaa_pr` = PR:n numero).
-2. Ajo tarkistaa budjettimuuttujan `PORTTI_AJO_BUDJETTI_USD` (puuttuessa ajo ei käynnisty; oletuslukua ei ole) ja
-   syötteet, hakee kuluttajarepon oletushaaran ja portin pinnatusta shasta, tallentaa oletushaaran shan
-   (main-vahti), varmistaa että label `agentti` on repossa, tarkistaa että `kortit/<slug>.md` ja sääntölohko ovat
-   olemassa, ja kokoaa promptin: ohjeet, repon asennus- ja testikomennot sanatarkasti ja kuluttajan yhteinen
-   sääntölohko sanatarkasti (`saantolohko_polku`, oletus `.portti/saannot.md`). Portin kopio poistetaan työtilasta
-   ennen agenttia, jotta se ei päädy agentin committiin.
-3. Agentti (`malli`, oletus `claude-opus-5-5`; `--max-turns` syötteestä `max_turns`; `--max-budget-usd`
-   budjettimuuttujasta) lukee CLAUDE.md:n ja kortin, varmistaa kortin hyväksynnän repon omien sääntöjen mukaan
-   (muuten lopettaa ja raportoi), työskentelee haarassa `<slug>` päivitetystä oletushaarasta, ajaa repon komennot,
-   pushaa ja avaa PR:n (ei luonnos) labelilla `agentti` ilman katselmoijaa; kuvauksessa todistepaketti ja
-   päätöslista. Korjauskierroksessa: sama haara, lukee portin ja ohjauksen kommentit sekä kaatuneiden testien lokin
-   (`gh run view --log-failed`), korjaa vain ne ja pushaa.
-4. Push tehdään Claude GitHub Appin tokenilla (OIDC-vaihto), joten PR käynnistää kuluttajan Testit- ja
+1. CTO käynnistää kuluttajan `kortti-ajo.yml`:n käsin (Actions → Run workflow, syöte `kortti` ja halutessaan
+   `malli_kasin`), tai ohjaus käynnistää sen korjauskierroksessa (`kortti`, `korjaa_pr` ja `alkuperainen_malli`).
+   Ajoa ei ajasteta.
+2. Ennen kuin kielimallia kutsutaan, työnkulku tarkistaa: budjettimuuttuja `PORTTI_AJO_BUDJETTI_USD` on asetettu
+   (oletuslukua ei ole); kortin tila on `hyväksytty` oletushaarassa (`portti kortin-tila`); uudessa ajossa kortin
+   haaraa `feature/<slug>` ei ole vielä olemassa, korjauskierroksessa haara on olemassa ja PR on avoin samasta
+   haarasta; ja `portti malli` palauttaa sallitun mallin. `malli_kasin` hyväksytään vain, kun tapahtuma on
+   `workflow_dispatch` ja käynnistäjä on ihminen, ei botti eikä toinen työnkulku, eikä koskaan korjauskierroksessa.
+   Jos jokin ehto ei täyty, ajo epäonnistuu näkyvästi.
+3. Työnkulku tallentaa oletushaaran shan (main-vahti), varmistaa labelit `agentti` ja `malli-<nimi>` repoon ja kokoaa
+   promptin: ohjeet, repon asennus- ja testikomennot sanatarkasti ja kuluttajan yhteinen sääntölohko sanatarkasti
+   (`saantolohko_polku`, oletus `.portti/saannot.md`). Portin kopio poistetaan työtilasta ennen agenttia, jotta se
+   ei päädy agentin committiin.
+4. Agentti ajetaan mallilla, joka tulee vain `portti malli` -askeleen tulosteesta (`--max-turns` syötteestä
+   `max_turns`, `--max-budget-usd` budjettimuuttujasta). Se lukee CLAUDE.md:n ja kortin, luo haaran `feature/<slug>`
+   päivitetystä oletushaarasta, vaihtaa kortin tilariviksi "työn alla" ensimmäisessä commitissa ja "PR" ennen PR:ää
+   (syöte `kortin_tilarivit`; arvolla false feature-PR ei muuta korttia), ajaa kortin hyväksymiskriteerin ja repon
+   komennot, käynnistää tarkistaja-aliagentin (Opus, puhdas konteksti: vain kortti, CLAUDE.md ja diff), pushaa ja
+   avaa PR:n (ei luonnos) labeleilla `agentti` ja `malli-<nimi>` ilman katselmoijaa. Kuvauksessa on todistepaketti,
+   päätöslista ja rivi "Ei ajettu oikealla datalla." Korjauskierroksessa: sama haara, lukee portin ja ohjauksen
+   kommentit sekä kaatuneiden testien lokin (`gh run view --log-failed`), korjaa vain ne ja pushaa.
+5. Push tehdään Claude GitHub Appin tokenilla (OIDC-vaihto), joten PR käynnistää kuluttajan Testit- ja
    Portti-työnkulut; GITHUB_TOKENia ei käytetä pushiin (checkout ei tallenna sitä gitin asetuksiin). Ohjaus päättää
    jatkon.
-5. Ajon jälkeen työnkulku tarkistaa, että agentti todella ajoi: action lopettaa vihreänä ilman ajoa, jos App-tokenin
-   vaihto hylkää työnkulun, joten tyhjä tulos kaataa ajon. Lisäksi se varmistaa labelin `agentti` haaran avoimeen
-   PR:ään.
-6. Main-vahti vertaa oletushaaran shaa ajon jälkeen (`if: always()`): jos se muuttui, ajo kaatuu näkyvästi ja
+6. Ajon jälkeen työnkulku tarkistaa, että agentti todella ajoi (action lopettaa vihreänä ilman ajoa, jos App-tokenin
+   vaihto hylkää työnkulun, joten tyhjä tulos kaataa ajon) ja että haarasta on avoin PR, ja varmistaa PR:n labelit.
+7. Ajon yhteenveto kirjoitetaan työnkulun yhteenvetoon ja PR:n kuvauksen merkittyyn lohkoon: malli ja sen lähde,
+   kortti, kesto, kierrokset, tokenit, kulu ja ajon käyttämät mallit. Jos ajo käytti mallia, joka ei ole sallittu
+   tunniste, ajo kaatuu näkyvästi. Tarkistus havaitsee eikä estä.
+8. Main-vahti vertaa oletushaaran shaa ajon jälkeen (`if: always()`): jos se muuttui, ajo kaatuu näkyvästi ja
    jättää PR:ään kommentin CTO:lle (`PORTTI_KATSELMOIJA_CTO`). Vahti havaitsee eikä estä.
 
 ### Sallitut työkalut
 
-Tiedostot: `Read`, `Glob`, `Grep`, `Edit`, `Write`, `MultiEdit`. Git vapailla argumenteilla: `git status`,
-`git diff`, `git log`, `git show`, `git rev-parse`, `git add`, `git rm`, `git mv`, `git restore`, `git commit`,
-`git fetch origin`, `git switch`. Täsmälleen omaan haaraan: `git push -u origin <slug>`, `git push origin <slug>`,
-`git push --set-upstream origin <slug>`, `git pull --ff-only origin <slug>`. gh: `gh pr view`, `gh pr list`,
-`gh pr create`, `gh pr comment`, `gh run list`, `gh run view`. Repon asennus- ja testikomennot sanatarkasti
-syötteestä `testikomennot`, asennus ensin; lainaus-, ohjaus- ja erotinmerkit hylätään, koska pilkku ja sulut
-rikkoisivat työkalulistan. Kielletyt: `Read(./.git/**)`, `env`, `printenv`, `set`, `cat .git/config`, `git config`,
-`git remote`. Muu Bash on pois.
+Tiedostot: `Read`, `Glob`, `Grep`, `Edit`, `Write`, `MultiEdit`. Aliagentti: `Agent`, jolla on käytössä vain
+työnkulun määrittelemä `tarkistaja`; sisäänrakennetut aliagentit on poistettu. Git vapailla argumenteilla:
+`git status`, `git diff`, `git log`, `git show`, `git rev-parse`, `git add`, `git rm`, `git mv`, `git restore`,
+`git commit`, `git fetch origin`, `git switch`. Täsmälleen omaan haaraan: `git push -u origin feature/<slug>`,
+`git push origin feature/<slug>`, `git push --set-upstream origin feature/<slug>`,
+`git pull --ff-only origin feature/<slug>`. gh: `gh pr view`, `gh pr list`, `gh pr create`, `gh pr comment`,
+`gh run list`, `gh run view`. Repon asennus- ja testikomennot sanatarkasti syötteestä `testikomennot`, asennus
+ensin; lainaus-, ohjaus- ja erotinmerkit hylätään, koska pilkku ja sulut rikkoisivat työkalulistan. Kielletyt:
+`Read(./.git/**)`, `env`, `printenv`, `set`, `cat .git/config`, `git config`, `git remote`. Muu Bash on pois.
+
+Mallin lukitus ajon sisällä: kaikki aliagentit pakotetaan tarkistajan malliin (`CLAUDE_CODE_SUBAGENT_MODEL` ja
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE`), sisäänrakennetut aliagentit poistetaan
+(`CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS`) ja aliakset `sonnet` ja `haiku` ohjataan samaan malliin
+(`ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`). Arvot annetaan sekä työnkulun ympäristössä
+että actionin asetuksina.
 
 Repon omia `.claude`-asetuksia ei ladata (`--setting-sources user`), joten lista on täsmälleen tämä eikä repon
 asetus voi laajentaa sitä; CLAUDE.md luetaan promptin ohjeesta. Agentin aliprosessit eivät saa API-avainta
@@ -320,6 +380,12 @@ uudempi käynnistys korvaa odottavan. Aikakatkaisu syötteestä `aikakatkaisu_mi
 - Odottavan ajon korvautumista: jos kortti-ajoja käynnistetään useita toisen ollessa käynnissä, vain viimeisin jää
   jonoon. Korvattu korjauskierros ei käynnisty uudelleen samalle headille; PR jää tilaan korjauskierros, kunnes
   haaraan tulee uusi commit tai CTO käynnistää ajon käsin.
+- Mallin vaihtumista ajon aikana: turvaluokitin voi siirtää ajon vanhempaan Opus-malliin. Ajon yhteenveto havaitsee
+  sen ja kaataa ajon, mutta PR on silloin jo avattu.
+- Automaatiota, joka käyttää ihmisen tokenia: `malli_kasin` tarkistaa tapahtuman ja käynnistäjän tyypin. Ihmisen
+  henkilökohtaisella tokenilla tehty käynnistys näyttää ihmisen tekemältä.
+- Tarkistajan kontekstin rajausta rakenteellisesti: tarkistaja alkaa puhtaalta pöydältä eikä näe agentin
+  keskustelua, mutta "vain kortti, CLAUDE.md ja diff" on ohje. Sillä on samat lukutyökalut kuin agentilla.
 
 ## Käyttöönotto kuluttajarepossa
 
@@ -331,15 +397,19 @@ promptin samasta shasta (`job.workflow_sha`), joten pinnaus on yksi rivi per ty�
    [mallit/portti-ohjaus.yml](mallit/portti-ohjaus.yml) tiedostoksi `.github/workflows/portti-ohjaus.yml` ja
    [mallit/kortti-ajo.yml](mallit/kortti-ajo.yml) tiedostoksi `.github/workflows/kortti-ajo.yml`. Testityönkulun
    nimen on oltava `Testit` ja tiedoston `testit.yml`, tai ohjauksen syötteet päivitetään. Kortti-ajon syötteeseen
-   `testikomennot` kirjoitetaan repon asennus- ja testikomennot, asennus ensin. Malleihin ei lisätä
-   concurrency-ryhmää: uudelleenkäytettävät työnkulut sarjoittavat ajonsa itse.
+   `testikomennot` kirjoitetaan repon asennus- ja testikomennot, asennus ensin, ja syötteellä `kortin_tilarivit`
+   valitaan, päivittääkö agentti kortin tilarivin haarassa. Malleihin ei lisätä concurrency-ryhmää:
+   uudelleenkäytettävät työnkulut sarjoittavat ajonsa itse. Kortti-ajoa ei ajasteta.
 2. Lisää `.portti/saannot.md`: kuluttajan yhteinen sääntölohko, joka liitetään kortti-ajon promptiin sanatarkasti.
-   Kortit ovat tiedostoja `kortit/<slug>.md`. Agentti varmistaa kortin hyväksynnän repon omien sääntöjen mukaan,
-   joten CLAUDE.md:n on kerrottava, miten hyväksyntä merkitään (esimerkiksi tilarivi kortissa tai hyväksyntäcommit).
+   Kortit ovat tiedostoja `kortit/<slug>.md`. Lisää kortin pohjaan rivit tiedostosta
+   [mallit/kortin-pohja.md](mallit/kortin-pohja.md): tilarivi `- Tila:` ja mallirivi
+   `- Malli: opus (oletus; fable vain hyväksytyllä päätöksellä)`. Kortti-ajo käynnistyy vain, kun tila on
+   `hyväksytty` oletushaarassa, ja työ tehdään haaraan `feature/<slug>`.
 3. Asenna Claude GitHub App (`https://github.com/apps/claude`) vain valituille repoille, ei koko organisaatioon.
-4. Salaisuus `ANTHROPIC_API_KEY` repoon (yrityksen avain). Vaihtoehto on OIDC-federaatio actionin syötteillä
-   `anthropic_federation_rule_id` ja `anthropic_organization_id`, jolloin avainta ei tallenneta; se vaatii muutoksen
-   kortti-ajon työnkulkuun. Aseta Consolen workspacelle kuukausiraja.
+4. Salaisuus `ANTHROPIC_API_KEY` repoon: yrityksen API-avain omasta Console-workspacesta, ei kenenkään
+   henkilökohtainen tili. Vaihtoehto on OIDC-federaatio actionin syötteillä `anthropic_federation_rule_id` ja
+   `anthropic_organization_id`, jolloin avainta ei tallenneta; se vaatii muutoksen kortti-ajon työnkulkuun. Aseta
+   Consolen workspacelle kuukausiraja.
 5. Muuttujat (Settings → Secrets and variables → Actions → Variables): `PORTTI_KATSELMOIJA_CTO` (GitHub-tunnus),
    `PORTTI_KATSELMOIJA_T1` (valinnainen; puuttuessa käytetään CTO:ta) ja `PORTTI_AJO_BUDJETTI_USD` (pakollinen;
    ilman sitä kortti-ajo ei käynnisty).
@@ -348,8 +418,8 @@ promptin samasta shasta (`job.workflow_sha`), joten pinnaus on yksi rivi per ty�
    Ohjaus toimii forkin PR:ille ilman näitä, koska se ajetaan `workflow_run`-tapahtumasta, mutta Portti-kommentti
    PR-ajosta vaatii kirjoitustokenin.
 7. Labelit `katselmoitavaksi`, `kova`, `jumissa`, `korjattava`, `liian-iso`, `tier-*` ja `korjauskierros-*` ohjaus
-   luo itse. Labelin `agentti` luo kortti-ajo ennen agenttia; agentti asettaa sen PR:ää luodessaan, ja kortti-ajo
-   varmistaa sen ajon lopuksi.
+   luo itse. Labelit `agentti` ja `malli-<nimi>` luo kortti-ajo ennen agenttia; agentti asettaa ne PR:ää
+   luodessaan, ja kortti-ajo varmistaa ne ajon lopuksi.
 
 ## Tarkistetut GitHubin käytökset (4.11. ja 11.11.2026)
 
@@ -394,6 +464,20 @@ promptin samasta shasta (`job.workflow_sha`), joten pinnaus on yksi rivi per ty�
 - Claude Coden dokumentaatio: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` poistaa tunnistetiedot (esimerkiksi
   `ANTHROPIC_API_KEY`) Bash-komentojen ja muiden aliprosessien ympäristöstä ja jättää GitHub-tokenit paikalleen;
   `--max-budget-usd` pysäyttää ajon asiakaspuolen kustannusarvion perusteella.
+- Claude Coden dokumentaatio, mallit (tarkistettu 11.11.2026): `--agents` ottaa aliagentin määrittelyn JSONina
+  (kuvaus, prompti, työkalut, malli); aliagentti alkaa puhtaalla kontekstilla. `CLAUDE_CODE_SUBAGENT_MODEL` yhdessä
+  muuttujan `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` kanssa ajaa jokaisen aliagentin annetulla mallilla, eikä agentti voi
+  antaa mallia kutsussa. `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` poistaa sisäänrakennetut aliagentit
+  ei-interaktiivisessa ajossa. `ANTHROPIC_DEFAULT_SONNET_MODEL` ja `ANTHROPIC_DEFAULT_HAIKU_MODEL` määräävät, mihin
+  aliakset `sonnet` ja `haiku` ratkeavat. Opus 5.5:n ja Fablen turvaluokitin voi ajaa pyynnön uudelleen vanhemmalla
+  Opus-mallilla, ja istunto jatkuu sillä.
+- claude-code-actionin lähdekoodi: syöte `settings` yhdistetään käyttäjätason asetuksiin, joiden `env`-lohko
+  asetetaan ajon ympäristöön. Suoritustiedosto (`execution_file`) on JSON-lista viesteistä; tulosviestissä ovat
+  kesto, kierrokset, kulu ja mallikohtainen käyttö. Mallikohtaisten kenttien nimet varmistuvat pilotissa; jos ne
+  puuttuvat, yhteenveto kirjaa "ei tietoa".
+- Kortti-ajon tarkistus ennen kielimallia, promptin kokoaminen ja ajon yhteenveto on ajettu paikallisesti
+  keksityssä hakemistossa 11.11.2026: sallitut tapaukset menivät läpi, ja botti, Sonnet, hyväksymätön kortti,
+  kortin kielletty malli ja olemassa oleva haara hylättiin.
 
 ## Pinnaus ja versiointi
 
@@ -407,7 +491,7 @@ PR, joka osuu kova-kategoriaan `portti_itse`.
 
 ```bash
 python3.11 -m pip install -e ".[dev]"
-python -m mypy --strict portti ajo/kokoa_prompti.py
+python -m mypy --strict portti ajo/kokoa_prompti.py ajo/ajon_yhteenveto.py
 python -m pytest -q
 PYTHONSAFEPATH=1 portti tarkista-tapaukset .portti/tapaukset.yml --lahde head
 ```

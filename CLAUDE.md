@@ -25,13 +25,26 @@
 - Rakenne ja moduulirajat ovat tiedostossa ARCHITECTURE.md. Tiedosto enintään 400 riviä,
   funktio enintään 60 riviä, yksi vastuu per moduuli, ei globaalia muuttuvaa tilaa.
 
+## Mallipäätös 6.11.2026 (CTO)
+
+- Koodia, kortteja ja suunnitelmia ei koskaan kirjoiteta Sonnetilla eikä Haikulla.
+- Oletusmalli on Opus (`claude-opus-5-5`).
+- Fable (`claude-fable-5-1`) vain kahdella tavalla: kortissa on rivi `- Malli: fable`, jonka CTO tai CEO on
+  hyväksynyt kortin mukana, tai ihminen käynnistää ajon käsin ja valitsee fablen.
+- Mikä tahansa muu arvo (sonnet, haiku, tyhjä, tuntematon arvo, mallitunniste ilman hyväksyttyä nimeä) estää
+  ajon, ja syy kirjataan.
+- Korjauskierros käyttää samaa mallia kuin alkuperäinen ajo. Tarkistaja on aina Opus tai parempi, puhtaalla
+  kontekstilla.
+- Päätös on koodina tiedostossa `portti/malli.py` (vakio `SALLITUT_MALLIT`, komento `portti malli`). Tiedoston
+  muutos on tässä repossa kova: sallitut mallit muuttuvat vain CTO:n päätöksellä.
+
 ## Testikomennot
 
 Samat kuin `.github/workflows/testit.yml`; kaikkien on mentävä läpi ennen commitia.
 
 ```bash
 python3.11 -m venv .venv && .venv/bin/python -m pip install -e ".[dev]"
-.venv/bin/python -m mypy --strict portti
+.venv/bin/python -m mypy --strict portti ajo/kokoa_prompti.py ajo/ajon_yhteenveto.py
 .venv/bin/python -m pytest -q
 PYTHONSAFEPATH=1 .venv/bin/portti tarkista-tapaukset .portti/tapaukset.yml --lahde head
 ```

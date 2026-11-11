@@ -30,10 +30,14 @@ pinnatulla sha:lla.
 | `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste, ei sekoitu portin kommenttiin) |
 | `portti/ohjaus_toteutus.py` | edellisen päätöksen luku ohjauskommentista; päätöksen soveltaminen: labelit, katselmoijapyyntö, kommentti, kortti-ajon käynnistys |
 | `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa` ja `ohjaus-toteuta` |
+| `portti/kortti.py` | kortin metarivien luku (`- Tila:`, `- Malli:`), kortin haaran slug (`feature/<slug>`) |
+| `portti/malli.py` | mallipäätös 6.11.2026 funktiona: sallitut mallit yhdessä vakiossa, valinta ja sen lähde |
+| `portti/cli_malli.py` | komennot `malli` ja `kortin-tila` |
 
-Riippuvuussuunta: `cli` → (`cli_komennot`, `cli_ohjaus`) → (`arviointi`, `kommentti`, `shadow`,
+Riippuvuussuunta: `cli` → (`cli_komennot`, `cli_ohjaus`, `cli_malli`) → (`arviointi`, `kommentti`, `shadow`,
 `shadow_muotoilu`, `tapaukset`, `policy_lahde`, `ohjaus_toteutus`) → (`policy`, `git_diff`, `invariantit`,
-`github_api`, `ohjaus_kommentti`, `ohjaus`) → (`paallekkaisyys`, `polkumallit`, `verdict`). Alemmat eivät tunne
+`github_api`, `ohjaus_kommentti`, `ohjaus`) → (`paallekkaisyys`, `polkumallit`, `verdict`, `malli`) → `kortti`.
+`malli` ja `kortti` käyttävät vain vakiokirjastoa. Alemmat eivät tunne
 ylempiä. `ohjaus` käyttää verdictin ja tierin vakioita, mutta ei laske mitään diffistä: se lukee evidencen
 sanakirjana, saa kaiken syötteenä ja on puhdas funktio.
 
@@ -45,18 +49,29 @@ forkkitieto ja edellinen päätös; tuloste on järjestetty päätös-JSON ilman
 `ohjaus-edellinen` lukee edellisen päätöksen ohjauskommentin konedatasta (head, toimenpide, kierros), ja jos se
 käynnisti korjauskierroksen tälle samalle headille, `ohjaa` toistaa kierroksen käynnistämättä uutta
 (`kaynnista_kortti_ajo`). Toteutus (`ohjaus-toteuta`) on erillinen askel, joka puhuu GitHubille `GitHubApi`n kautta
-ja käynnistää kortti-ajon vain, kun päätös sanoo niin.
+ja käynnistää kortti-ajon vain, kun päätös sanoo niin. Uusi korjauskierros vaatii kortin slugin (PR:n haara
+`feature/<slug>`) ja alkuperäisen ajon mallin (label `malli-<nimi>`); puuttuva tieto vie PR:n CTO:lle.
+
+## Mallin valinta
+
+CTO:n mallipäätös 6.11.2026 on `portti/malli.py`:n puhdas funktio: syötteinä kortin teksti, käsin valittu arvo ja
+korjauskierroksen alkuperäinen malli, tuloksena mallitunniste ja sen lähde tai virhe. Sallitut nimet ja tunnisteet
+ovat yhdessä vakiossa, ja tiedoston muutos on portin omassa policyssä kova. Moottori ei kutsu mallia: se vain
+päättää, mikä malli kortti-ajolle annetaan. Ohjaus käyttää samaa vakiota labelin `malli-<nimi>` tarkistukseen.
 Katselmoijien tunnukset tulevat parametreina kuluttajarepon muuttujista; moottori ei tunne niitä.
 Työnkulku `.github/workflows/ohjaus.yml` ajetaan kuluttajan oletushaarasta (`workflow_run`), ei hae PR:n koodia
 ja hakee moottorin pinnatusta shasta.
 
 ## Kortti-ajo on erillinen komponentti
 
-`.github/workflows/kortti-ajo.yml`, `ajo/prompti.md` ja `ajo/kokoa_prompti.py` muodostavat kortti-ajon, joka
-käyttää kielimallia (claude-code-action) kuluttajarepossa. Moottori (`portti/`) ei tuo mitään kortti-ajosta eikä
-kortti-ajo tuo moottoria: kokoaja on vakiokirjaston skripti, jota ajetaan `python -I`. Kortti-ajon tuotos on PR,
-jonka Portti ja ohjaus arvioivat kuten minkä tahansa PR:n. Riippuvuussuunta: kortti-ajo → (prompti, kokoaja);
-ohjaus → kortti-ajo vain `workflow_dispatch`-kutsuna, ei koodiriippuvuutena.
+`.github/workflows/kortti-ajo.yml`, `ajo/prompti.md`, `ajo/kokoa_prompti.py` ja `ajo/ajon_yhteenveto.py`
+muodostavat kortti-ajon, joka käyttää kielimallia (claude-code-action) kuluttajarepossa. Moottori (`portti/`) ei
+tuo mitään kortti-ajosta eivätkä kortti-ajon skriptit tuo moottoria: kokoaja ja yhteenveto ovat vakiokirjaston
+skriptejä, joita ajetaan `python -I`. Työnkulku kutsuu moottoria vain komentoina ennen kielimallia
+(`portti kortin-tila`, `portti malli`) ja antaa agentille mallin vain `portti malli` -askeleen tulosteesta.
+Kortti-ajon tuotos on PR, jonka Portti ja ohjaus arvioivat kuten minkä tahansa PR:n. Riippuvuussuunta: kortti-ajo
+→ (prompti, kokoaja, yhteenveto) ja kortti-ajo → moottorin komennot; ohjaus → kortti-ajo vain
+`workflow_dispatch`-kutsuna, ei koodiriippuvuutena.
 
 ## Evidence-lähde shadow-raportille
 
