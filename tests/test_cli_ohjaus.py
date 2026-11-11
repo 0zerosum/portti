@@ -1,4 +1,5 @@
-"""Komennot `ohjaus-edellinen`, `ohjaa` ja `ohjaus-toteuta` päästä päähän: evidence synteettisestä reposta, vale-gh GitHubina."""
+"""Komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-epaonnistui` päästä päähän: evidence
+synteettisestä reposta, vale-gh GitHubina."""
 
 import json
 from pathlib import Path
@@ -111,6 +112,23 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
     kelvoton.write_text('{"paatos_muoto": 9}', encoding="utf-8")
     with pytest.raises(ValueError):
         main(["ohjaus-toteuta", "--paatos", str(kelvoton), "--repo", "omistaja/keksitty", "--pr", "7"], api=vale.api())
+
+
+def test_ohjaus_ajo_epaonnistui_vie_prn_ctolle_jumissa() -> None:
+    """Korjauskierroksen kortti-ajo epäonnistui: PR ei jää tilaan korjauskierros."""
+    labelit = [{"name": nimi} for nimi in ("agentti", "malli-opus", "korjauskierros-1", "korjattava")]
+    vale = ValeGh({"label list": [{"name": "agentti"}], "issues/7/comments": [[]],
+                   "pr view": {"author": {"login": "app/keksitty-agentti"}, "headRefOid": "abc123abc123", "labels": labelit}})
+    komento = ["ohjaus-ajo-epaonnistui", "--repo", "omistaja/keksitty", "--pr", "7", "--syy", "ajon tulos failure"]
+    assert main([*komento, "--katselmoija-cto", "keksitty-cto"], api=vale.api()) == 0
+    muokkaukset = [argumentit[5:] for argumentit, _ in vale.kutsut if argumentit[:2] == ["pr", "edit"]]
+    assert muokkaukset == [["--add-label", "jumissa,katselmoitavaksi"], ["--remove-label", "korjattava"],
+                           ["--add-reviewer", "keksitty-cto"]], "kierros-, malli- ja agenttilabelit jäävät"
+    runko = next(json.loads(syote)["body"] for argumentit, syote in vale.kutsut if "POST" in argumentit and syote)
+    assert "**CTO:lle**" in runko and "kortti-ajo epäonnistui: ajon tulos failure" in runko
+    assert '"toimenpide": "cto"' in runko and '"head_sha": "abc123abc123"' in runko
+    with pytest.raises(ValueError, match="headia ei saatu"):
+        main(komento, api=ValeGh({"pr view": {}}).api())
 
 
 def test_ohjaus_edellinen_estaa_saman_kierroksen_kaynnistamisen_kahdesti(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

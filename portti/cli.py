@@ -1,5 +1,5 @@
 """Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti, ohjaus-edellinen, ohjaa,
-ohjaus-toteuta, malli, kortin-tila.
+ohjaus-toteuta, ohjaus-ajo-epaonnistui, malli, kortin-tila.
 
 Toteutukset ovat cli_komennot.py:ssä, cli_ohjaus.py:ssä ja cli_malli.py:ssä.
 """
@@ -14,6 +14,7 @@ from portti.cli_komennot import komento_arvioi, komento_esto, komento_kommentti,
 from portti.cli_malli import komento_kortin_tila, komento_malli, lisaa_malli_komennot
 from portti.cli_ohjaus import (
     komento_ohjaa,
+    komento_ohjaus_ajo_epaonnistui,
     komento_ohjaus_edellinen,
     komento_ohjaus_toteuta,
     lisaa_ohjaus_komennot,
@@ -101,6 +102,8 @@ def main(argv: list[str] | None = None, api: GitHubApi | None = None) -> int:
         return komento_ohjaa(argumentit)
     if argumentit.komento == "ohjaus-toteuta":
         return komento_ohjaus_toteuta(argumentit, api)
+    if argumentit.komento == "ohjaus-ajo-epaonnistui":
+        return komento_ohjaus_ajo_epaonnistui(argumentit, api)
     if argumentit.komento == "malli":
         return komento_malli(argumentit)
     if argumentit.komento == "kortin-tila":
