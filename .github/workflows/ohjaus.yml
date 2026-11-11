@@ -7,9 +7,12 @@ name: Portti-ohjaus (uudelleenkäytettävä)
 # suoriteta: moottori haetaan portti-reposta samasta shasta, johon kutsuja on pinnannut tämän työnkulun
 # (job.workflow_repository ja job.workflow_sha), ja kaikki PR:n tieto luetaan GitHubin API:sta.
 #
-# Fail-closed: puuttuva evidence, puuttuva testitulos tai eri head vie PR:n CTO:lle (portti ohjaa).
+# Fail-closed: puuttuva evidence, puuttuva testitulos, eri head tai vajaa tiedostolista vie PR:n CTO:lle
+# (portti ohjaa). Jos kortti-ajoa ei saada käyntiin tai katselmoijapyyntö epäonnistuu, PR saa silti labelit ja
+# kommentin, ja tämä ajo päättyy virheeseen (ohjaus-toteuta palauttaa 1).
 # Jos toinen työnkulku on vielä kesken, ajo päättyy ilman toimenpiteitä; sen valmistuminen ajaa ohjauksen
-# uudelleen. Idempotentti: edellinen päätös luetaan ohjauskommentista ja annetaan moottorille, joten
+# uudelleen. Idempotentti: edellinen päätös luetaan ohjauksen omasta kommentista (kirjoittaja
+# github-actions[bot]) ja annetaan moottorille, joten
 # tälle headille jo käynnistetty korjauskierros ei käynnisty uudelleen. Korjauskierros käynnistetään
 # kuluttajan kortti-ajolle syötteillä kortti (haarasta feature/<slug>), korjaa_pr ja alkuperainen_malli
 # (labelista malli-<nimi>).
@@ -135,19 +138,30 @@ jobs:
           PR: ${{ steps.tila.outputs.pr }}
         run: |
           set -euo pipefail
-          tiedot="$(gh pr view "$PR" --repo "$REPO" --json headRefOid,headRefName,isCrossRepository,labels)"
+          tiedot="$(gh pr view "$PR" --repo "$REPO" --json headRefOid,headRefName,isCrossRepository,labels,changedFiles)"
           head_nyt="$(echo "$tiedot" | jq -r '.headRefOid')"
           if [ "$head_nyt" != "$HEAD_SHA" ]; then
             echo "PR:n head on jo $head_nyt, tämä ajo koski headia $HEAD_SHA; uudempi ajo ohjaa"
             echo "jatka=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)' > polut.txt
-          echo "muuttuneita polkuja: $(wc -l < polut.txt | tr -d ' ')"
+          gh api "repos/$REPO/pulls/$PR/files" --paginate --slurp > "$RUNNER_TEMP/pr-tiedostot.json"
+          jq -r '.[][] | .filename, (.previous_filename // empty)' "$RUNNER_TEMP/pr-tiedostot.json" > polut.txt
+          # GitHub palauttaa enintään 3000 tiedostoa. Jos lista ei kata PR:n kaikkia tiedostoja, kovia polkuja
+          # ei voi tarkistaa: moottori vie PR:n CTO:lle (--polut-vajaat).
+          listattu="$(jq '[.[][]] | length' "$RUNNER_TEMP/pr-tiedostot.json")"
+          muuttuneita="$(echo "$tiedot" | jq -r '.changedFiles')"
+          polut_vajaat=false
+          if [ "$listattu" != "$muuttuneita" ]; then
+            echo "::warning::PR:ssä on $muuttuneita muuttunutta tiedostoa, mutta lista kattaa $listattu"
+            polut_vajaat=true
+          fi
+          echo "muuttuneita tiedostoja: $muuttuneita, listattu: $listattu"
           {
             echo "haara=$(echo "$tiedot" | jq -r '.headRefName')"
             echo "forkki=$(echo "$tiedot" | jq -r '.isCrossRepository')"
             echo "labelit=$(echo "$tiedot" | jq -r '[.labels[].name | gsub("[\r\n]"; " ")] | join(",")')"
+            echo "polut_vajaat=$polut_vajaat"
             echo "jatka=true"
           } >> "$GITHUB_OUTPUT"
 
@@ -159,8 +173,20 @@ jobs:
           PR: ${{ steps.tila.outputs.pr }}
         run: |
           # Puuttuva artefakti ei kaada ajoa: ohjaus tulkitsee puuttuvan evidencen fail-closed (CTO).
-          gh run download "$PORTTI_AJO" --repo "$REPO" --name "portti-evidence-pr$PR" --dir evidence \
-            || echo "evidence-artefaktia ei saatu Portti-ajosta $PORTTI_AJO"
+          # Artefaktin sisältö voi olla PR:n tuottama, joten se puretaan työtilan ulkopuolelle ja työtilaan
+          # kopioidaan vain yksi tavallinen, enintään megatavun kokoinen tiedosto.
+          purku="$(mktemp -d "$RUNNER_TEMP/portti-evidence.XXXXXX")"
+          if ! gh run download "$PORTTI_AJO" --repo "$REPO" --name "portti-evidence-pr$PR" --dir "$purku"; then
+            echo "evidence-artefaktia ei saatu Portti-ajosta $PORTTI_AJO"
+            exit 0
+          fi
+          tiedosto="$purku/portti-evidence.json"
+          if [ -f "$tiedosto" ] && [ ! -L "$tiedosto" ] && [ "$(wc -c < "$tiedosto")" -le 1048576 ]; then
+            mkdir -p evidence
+            cp "$tiedosto" evidence/portti-evidence.json
+          else
+            echo "evidence-artefaktissa ei ole kelvollista tiedostoa portti-evidence.json"
+          fi
 
       - name: Lue edellinen ohjauspäätös (idempotenssi)
         if: steps.pr.outputs.jatka == 'true'
@@ -178,9 +204,11 @@ jobs:
           LABELIT: ${{ steps.pr.outputs.labelit }}
           FORKKI: ${{ steps.pr.outputs.forkki }}
           HAARA: ${{ steps.pr.outputs.haara }}
+          POLUT_VAJAAT: ${{ steps.pr.outputs.polut_vajaat }}
         run: |
           liput=()
           [ "$FORKKI" = "true" ] && liput+=(--forkki)
+          [ "$POLUT_VAJAAT" = "true" ] && liput+=(--polut-vajaat)
           python -m portti.cli ohjaa --head "$HEAD_SHA" --testit "$TESTIT" --evidence evidence/portti-evidence.json \
             --polut polut.txt --labelit "$LABELIT" --haara "$HAARA" --edellinen portti-edellinen.json \
             --paatos portti-paatos.json "${liput[@]}"

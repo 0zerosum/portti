@@ -94,6 +94,18 @@ def test_ohjaus_hakee_prn_head_haarasta_ja_antaa_edellisen_paatoksen_moottorille
     assert "--kortti " not in job["steps"][toteuta]["run"], "kortin slug ja malli tulevat päätöksestä"
 
 
+def test_ohjaus_vie_vajaan_tiedostolistan_ctolle_ja_purkaa_evidencen_tyotilan_ulkopuolelle() -> None:
+    job = lue(TYONKULUT / "ohjaus.yml")["jobs"]["ohjaus"]
+    tiedot = askel(job, "Hae PR:n head")["run"]
+    assert "changedFiles" in tiedot and "polut_vajaat=$polut_vajaat" in tiedot
+    paatos = askel(job, "Päätä ohjaus")
+    assert paatos["env"]["POLUT_VAJAAT"] == "${{ steps.pr.outputs.polut_vajaat }}"
+    assert "liput+=(--polut-vajaat)" in paatos["run"]
+    evidence = askel(job, "Hae evidence")["run"]
+    assert 'mktemp -d "$RUNNER_TEMP/' in evidence and '--dir "$purku"' in evidence, "artefaktia ei pureta työtilaan"
+    assert '[ ! -L "$tiedosto" ]' in evidence and 'cp "$tiedosto" evidence/portti-evidence.json' in evidence
+
+
 def test_kortti_ajo_on_workflow_call_budjetilla_ja_vahdilla() -> None:
     data = lue(TYONKULUT / "kortti-ajo.yml")
     syotteet = data["on"]["workflow_call"]["inputs"]
