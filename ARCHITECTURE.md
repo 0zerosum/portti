@@ -29,7 +29,7 @@ pinnatulla sha:lla.
 | `portti/ohjaus.py` | ohjauksen päätöstaulu (rivit a–e), fail-closed, jo käynnistetty kierros edellisestä päätöksestä, päätös-JSON ja päätös keskeytyneelle kortti-ajolle; ei verkkoa |
 | `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste ja oma kirjoittaja; rikkinäinen konedata merkitään kelvottomaksi) |
 | `portti/ohjaus_toteutus.py` | edellisen päätöksen luku ohjauksen omasta kommentista; päätöksen soveltaminen: labelit, kortti-ajon käynnistys, katselmoijapyyntö varavalintoineen, kommentti; käynnistyksen ja pyynnön virhepolut |
-| `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-epaonnistui` |
+| `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-paattyi` |
 | `portti/kortti.py` | kortin metarivien luku (`- Tila:`, `- Malli:`) ylätason luetteloriveistä ilman koodilohkoja ja kommentteja, kortin haaran slug (`feature/<slug>`) |
 | `portti/malli.py` | mallipäätös 6.11.2026 funktiona: sallitut mallit yhdessä vakiossa, valinta ja sen lähde |
 | `portti/cli_malli.py` | komennot `malli` ja `kortin-tila` |
@@ -54,7 +54,9 @@ puhuu GitHubille `GitHubApi`n kautta ja käynnistää kortti-ajon vain, kun pä�
 vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkuperäisen ajon mallin (label `malli-<nimi>`); puuttuva
 tieto vie PR:n CTO:lle. Korjauskierros ei jää ilman ihmistä: jos kortti-ajoa ei saada käyntiin, toteutus soveltaa
 moottorin päätöksen keskeytyneelle ajolle (CTO, label `jumissa`), ja kortti-ajon jälkitarkistus tekee saman
-komennolla `ohjaus-ajo-epaonnistui`, kun ajo epäonnistui tai ei tuottanut committia.
+komennolla `ohjaus-ajo-paattyi`, kun PR odottaa ajon jälkeen yhä samaa kierrosta samalla headilla. Päätös
+pysäyttää kierrokset sille headille (`kierrokset_pysaytetty` konedatassa). Uudessa korjauskierroksessa kommentti
+kirjoitetaan ennen käynnistystä, koska kortti-ajo lukee siitä ohjauksen ohjeen.
 
 ## Mallin valinta
 
@@ -68,15 +70,16 @@ ja hakee moottorin pinnatusta shasta.
 
 ## Kortti-ajo on erillinen komponentti
 
-`.github/workflows/kortti-ajo.yml`, `ajo/prompti.md`, `ajo/kokoa_prompti.py` ja `ajo/ajon_yhteenveto.py`
-muodostavat kortti-ajon, joka käyttää kielimallia (claude-code-action) kuluttajarepossa. Moottori (`portti/`) ei
+`.github/workflows/kortti-ajo.yml`, `.github/workflows/kortti-ajo-jalkitarkistus.yml`, `ajo/prompti.md`,
+`ajo/kokoa_prompti.py` ja `ajo/ajon_yhteenveto.py` muodostavat kortti-ajon, joka käyttää kielimallia (claude-code-action) kuluttajarepossa. Moottori (`portti/`) ei
 tuo mitään kortti-ajosta eivätkä kortti-ajon skriptit tuo moottoria: kokoaja ja yhteenveto ovat vakiokirjaston
 skriptejä, joita ajetaan `python -I`. Työnkulussa on kaksi jobia. Ensimmäinen kutsuu moottoria komentoina
 ennen kielimallia (`portti kortin-tila`, `portti malli`), antaa agentille mallin vain `portti malli` -askeleen
-tulosteesta ja ajaa agentin; agentin jälkeen siinä on vain askeleita ilman tokeneita. Toinen, jälkitarkistus,
-ajetaan puhtaalla runnerilla, koska agentti on voinut ajaa ensimmäisen jobin runnerilla mitä tahansa koodia: se
-lukee PR:n tilan GitHubin API:sta, ajaa yhteenvedon ja main-vahdin ja kutsuu moottorin komentoa
-`portti ohjaus-ajo-epaonnistui`, jos korjauskierros jäi tuloksetta. Ajon tulos (mallit, kesto, kulu) kulkee
+tulosteesta ja ajaa agentin; agentin jälkeen siinä on vain askeleita ilman tokeneita. Toinen, jälkitarkistus
+(oma tiedostonsa, kutsutaan paikallisella polulla samasta shasta), ajetaan puhtaalla runnerilla, koska agentti on
+voinut ajaa ensimmäisen jobin runnerilla mitä tahansa koodia: se lukee PR:n tilan GitHubin API:sta, ajaa
+yhteenvedon ja main-vahdin ja kutsuu korjauskierroksen jälkeen moottorin komentoa `portti ohjaus-ajo-paattyi`,
+joka päättää PR:n tilasta, jäikö kierros tuloksetta. Ajon tulos (mallit, kesto, kulu) kulkee
 jobien välillä artefaktina ja on dataa agentin runnerilta.
 Kortti-ajon tuotos on PR, jonka Portti ja ohjaus arvioivat kuten minkä tahansa PR:n. Riippuvuussuunta: kortti-ajo
 → (prompti, kokoaja, yhteenveto) ja kortti-ajo → moottorin komennot; ohjaus → kortti-ajo vain

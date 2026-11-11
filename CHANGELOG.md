@@ -62,14 +62,19 @@
     kierroslabel ei kaada ohjausta; kierroksiksi lasketaan vain ASCII-numerot.
   - Toteutus: kortti-ajon käynnistyksen virhe vie PR:n CTO:lle labelilla `jumissa`. Katselmoijapyynnön virhe
     kirjataan kommenttiin ja pyydetään seuraavaa ehdokasta; kun T1 on PR:n tekijä, pyydetään CTO; tunnusten
-    vertailu ei riipu kirjainkoosta. `ohjaus-toteuta` palauttaa virheessä 1. Uusi komento
-    `ohjaus-ajo-epaonnistui` vie epäonnistuneen korjauskierroksen PR:n CTO:lle.
-  - Kortin metarivit: aidatut koodilohkot ja HTML-kommentit ohitetaan, ja väärässä muodossa oleva tila- tai
-    mallirivi estää ajon.
+    vertailu ei riipu kirjainkoosta. `ohjaus-toteuta` palauttaa virheessä 1. Uudessa korjauskierroksessa
+    ohjauskommentti kirjoitetaan ennen kortti-ajon käynnistystä. Uusi komento `ohjaus-ajo-paattyi` ajetaan
+    korjauskierroksen kortti-ajon jälkeen: se vie PR:n CTO:lle vain, jos PR on kortin avoin agentin PR ja odottaa
+    yhä samaa kierrosta samalla headilla. CTO:lle jumissa viety PR ei saa uutta kierrosta samalla headilla
+    (konedatan merkintä `kierrokset_pysaytetty`).
+  - Portin oma kommentti: vain kirjoittajan (`kommentti --kommentoija`, oletus `github-actions[bot]`) kommenttia
+    päivitetään, ja konedata, joka ei jäsenny, ohitetaan luettaessa.
+  - Kortin metarivit: aidattujen koodilohkojen sisältöä ei lueta (aidat CommonMarkin mukaan), ja tila- tai
+    mallirivi väärässä muodossa tai HTML-kommentin sisällä estää ajon.
   - `ohjaus.yml`: evidence-artefakti puretaan työtilan ulkopuolelle; tiedostolistan kattavuus tarkistetaan.
-  - `kortti-ajo.yml`: agentin jälkeiset tarkistukset ovat omassa jobissaan puhtaalla runnerilla (lopputulos,
-    labelit, yhteenveto, käytetyt mallit, main-vahti), ja agentin jobiin jää agentin jälkeen vain tokenittomat
-    askeleet. Korjauskierroksen PR:ltä vaaditaan label `agentti` ja syötettä vastaava mallilabel; syötteet
+  - `kortti-ajo.yml` ja uusi `kortti-ajo-jalkitarkistus.yml`: agentin jälkeiset tarkistukset ovat omassa
+    jobissaan ja tiedostossaan puhtaalla runnerilla (lopputulos, labelit, yhteenveto, käytetyt mallit,
+    main-vahti), ja agentin jobiin jää agentin jälkeen vain tokenittomat askeleet. Korjauskierroksen PR:ltä vaaditaan label `agentti` ja syötettä vastaava mallilabel; syötteet
     tarkistetaan koko arvoltaan; PR haetaan vain repon omasta haarasta. Korjauskierros, joka epäonnistui,
     peruuntui tai ei tuottanut committia, viedään CTO:lle.
   - Prompti: korjauskierrokseen liitetään vain portin ja ohjauksen omat kommentit, eikä agentilla ole työkalua

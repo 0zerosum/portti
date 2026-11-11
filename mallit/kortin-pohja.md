@@ -11,10 +11,11 @@ kuin kielimallia kutsutaan. Lisää nämä rivit repon kortin pohjaan:
 ## Rivien muoto
 
 Tila- ja mallirivi ovat kortin ylätason luettelorivejä muodossa `- Avain: arvo` (myös `*` käy, sisennystä
-enintään kolme välilyöntiä). Moottori ei lue rivejä koodilohkojen eikä HTML-kommenttien sisältä. Jos sama avain
-on kortissa muussa muodossa, esimerkiksi `- **Malli:** fable`, `1. Tila: hyväksytty` tai sisennettynä alilistaan,
-ajo ei käynnisty: moottori ei arvaa, mitä rivillä tarkoitettiin. Rivi ilman luettelomerkkiä kesken tekstiä
-(`Malli: ...`) ei ole metarivi.
+enintään kolme välilyöntiä). Moottori ei lue rivejä aidattujen koodilohkojen sisältä. Jos sama avain on kortissa
+muussa muodossa, esimerkiksi `- **Malli:** fable`, `1. Tila: hyväksytty` tai sisennettynä alilistaan, tai rivi on
+HTML-kommentin sisällä, ajo ei käynnisty: moottori ei arvaa, mitä rivillä tarkoitettiin. Kortin rungossa ei siis
+voi olla luettelo- tai korostusriviä, joka alkaa sanalla Tila tai Malli. Rivi ilman luettelomerkkiä kesken
+tekstiä (`Malli: ...`) ei ole metarivi.
 
 ## Tila
 
