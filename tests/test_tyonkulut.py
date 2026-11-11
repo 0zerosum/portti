@@ -56,7 +56,7 @@ def test_actionit_ja_tyonkulut_on_pinnattu_shaan(polku: Path) -> None:
         assert SHA40.match(ref) or ref == PAIKKAMERKKI, f"{polku.name}: {viite} ei ole pinnattu shaan"
 
 
-@pytest.mark.parametrize("nimi", ["ohjaus.yml", "kortti-ajo.yml"])
+@pytest.mark.parametrize("nimi", ["ohjaus.yml", "kortti-ajo.yml", "kortti-ajo-jalkitarkistus.yml"])
 def test_run_lohkot_kayttavat_ymparistomuuttujia_eivat_lausekkeita(nimi: str) -> None:
     teksti = (TYONKULUT / nimi).read_text(encoding="utf-8")
     lohkot = RUN_LOHKO.findall(teksti)
@@ -122,16 +122,16 @@ def test_kortti_ajo_on_workflow_call_budjetilla_ja_kahdella_jobilla() -> None:
     assert job["concurrency"]["group"] == "kortti-ajo-${{ github.repository }}"
     assert job["timeout-minutes"] == "${{ inputs.aikakatkaisu_min }}"
     assert job["env"]["HAARA"] == "feature/${{ inputs.kortti }}"
-    assert set(job["outputs"]) == {"malli", "nimi", "lahde", "sallitut", "head_ennen", "vahti_sha", "agentti", "lopputulos"}
+    assert set(job["outputs"]) == {"malli", "nimi", "lahde", "sallitut", "vahti_sha", "agentti", "lopputulos"}
     assert job["steps"][0]["name"].startswith("Tarkista syötteet ja budjetti")
     teksti = (TYONKULUT / "kortti-ajo.yml").read_text(encoding="utf-8")
     assert "# v1.0.268" in teksti and "PORTTI_AJO_BUDJETTI_USD puuttuu" in teksti
 
 
-def test_kortti_ajon_jalkitarkistus_on_oma_jobi_puhtaalla_runnerilla() -> None:
-    """Agentti on voinut ajaa ensimmäisen jobin runnerilla mitä tahansa: tokenia käyttävät tarkistukset eivät ole siellä."""
+def test_kortti_ajon_jalkeen_agentin_jobissa_ei_ole_tokeneita() -> None:
+    """Agentti on voinut ajaa jobin runnerilla mitä tahansa: tokenia käyttävät tarkistukset eivät ole siellä."""
     data = lue(TYONKULUT / "kortti-ajo.yml")
-    agenttijob, jalki = data["jobs"]["kortti-ajo"], data["jobs"]["jalkitarkistus"]
+    agenttijob = data["jobs"]["kortti-ajo"]
     nimet = [str(askel.get("name", "")) for askel in agenttijob["steps"]]
     agentin_jalkeen = agenttijob["steps"][nimet.index(askel(agenttijob, "Aja agentti")["name"]) + 1:]
     assert [str(askel["name"]).split(" (")[0] for askel in agentin_jalkeen] == [
@@ -140,29 +140,41 @@ def test_kortti_ajon_jalkitarkistus_on_oma_jobi_puhtaalla_runnerilla() -> None:
         assert "GH_TOKEN" not in jalkiaskel.get("env", {}) and "secrets." not in str(jalkiaskel)
     assert "claude-execution-output.json" in agentin_jalkeen[0]["run"] and "modelUsage" in agentin_jalkeen[0]["run"]
     assert agentin_jalkeen[1]["with"]["name"] == "kortti-ajon-tulos"
-    assert jalki["needs"] == "kortti-ajo" and jalki["if"] == "always()"
-    assert jalki["permissions"] == {"contents": "read", "pull-requests": "write", "issues": "write", "actions": "read"}
-    assert "ANTHROPIC_API_KEY" not in str(jalki) and "claude-code-action" not in str(jalki)
-    assert jalki["env"]["AJON_TULOS"] == "${{ needs.kortti-ajo.result }}"
+    kutsu = data["jobs"]["jalkitarkistus"]
+    assert kutsu["uses"] == "./.github/workflows/kortti-ajo-jalkitarkistus.yml", "sama sha kuin kutsuvalla työnkululla"
+    assert kutsu["needs"] == "kortti-ajo" and kutsu["if"] == "always()"
+    assert kutsu["permissions"] == {"contents": "read", "pull-requests": "write", "issues": "write", "actions": "read"}
+    assert "secrets" not in kutsu, "jälkitarkistus ei saa API-avainta"
+    jalki = lue(TYONKULUT / "kortti-ajo-jalkitarkistus.yml")
+    assert set(kutsu["with"]) == set(jalki["on"]["workflow_call"]["inputs"]), "jokainen syöte välitetään"
+    assert kutsu["with"]["ajon_tulos"] == "${{ needs.kortti-ajo.result }}"
+    assert kutsu["with"]["vahti_sha"] == "${{ needs.kortti-ajo.outputs.vahti_sha }}"
+    assert kutsu["permissions"] == jalki["jobs"]["jalkitarkistus"]["permissions"]
+
+
+def test_jalkitarkistus_lukee_tilan_apista_ja_vie_tuloksettoman_kierroksen_ctolle() -> None:
+    teksti = (TYONKULUT / "kortti-ajo-jalkitarkistus.yml").read_text(encoding="utf-8")
+    jalki = lue(TYONKULUT / "kortti-ajo-jalkitarkistus.yml")["jobs"]["jalkitarkistus"]
+    assert "ANTHROPIC_API_KEY" not in teksti and "secrets." not in teksti, "jälkitarkistus ei saa API-avainta"
+    assert not any("claude-code-action" in str(jalkiaskel.get("uses", "")) for jalkiaskel in jalki["steps"])
+    assert jalki["env"]["AJON_TULOS"] == "${{ inputs.ajon_tulos }}" and jalki["env"]["LOPPUTULOS"] == "${{ inputs.lopputulos }}"
     assert all(jalkiaskel.get("if", "").startswith("always()") for jalkiaskel in jalki["steps"]), \
-        "jälkitarkistus ajetaan, vaikka ensimmäinen job epäonnistui tai peruttiin"
+        "jälkitarkistus ajetaan, vaikka agentin job epäonnistui tai peruttiin"
     haku = askel(jalki, "Etsi ajon PR")["run"]
     assert "select(.head.repo.full_name == $repo)" in haku, "forkin PR samalla haaran nimellä ei ole ajon PR"
-    assert "gh pr list" not in (TYONKULUT / "kortti-ajo.yml").read_text(encoding="utf-8")
-    tarkistus = askel(jalki, "Tarkista ajon lopputulos")
-    assert tarkistus["env"]["LOPPUTULOS"] == "${{ needs.kortti-ajo.outputs.lopputulos }}"
-    for vaatimus in ('"$AJON_TULOS" != "success"', '"$LOPPUTULOS" != "success"', 'repos/$REPO/issues/$PR/labels',
-                     '"$HEAD_NYT" = "$HEAD_ENNEN"', "jumissa=$jumissa"):
-        assert vaatimus in tarkistus["run"], vaatimus
+    assert "gh pr list" not in teksti and "gh pr list" not in (TYONKULUT / "kortti-ajo.yml").read_text(encoding="utf-8")
+    tarkistus = askel(jalki, "Tarkista ajon lopputulos")["run"]
+    for vaatimus in ('"$AJON_TULOS" != "success"', '"$LOPPUTULOS" != "success"', 'repos/$REPO/issues/$PR/labels'):
+        assert vaatimus in tarkistus, vaatimus
     yhteenveto = askel(jalki, "Ajon yhteenveto")
-    assert yhteenveto["if"] == "always() && needs.kortti-ajo.outputs.agentti != '' && needs.kortti-ajo.outputs.agentti != 'skipped'"
+    assert yhteenveto["if"] == "always() && inputs.agentti != '' && inputs.agentti != 'skipped'"
     assert "portti-moottori/ajo/ajon_yhteenveto.py" in yhteenveto["run"] and '--sallitut "$SALLITUT"' in yhteenveto["run"]
     assert yhteenveto["run"].rstrip().endswith('exit "$tulos"'), "luvaton tai todentamaton malli kaataa ajon näkyvästi"
-    vahti = askel(jalki, "Main-vahti")
-    assert vahti["env"]["SHA_ENNEN"] == "${{ needs.kortti-ajo.outputs.vahti_sha }}"
-    jumissa = askel(jalki, "Epäonnistunut korjauskierros")
-    assert jumissa["if"] == "always() && steps.tulos.outputs.jumissa == 'true'"
-    assert "portti.cli ohjaus-ajo-epaonnistui" in jumissa["run"], "PR ei jää tilaan korjauskierros ilman ihmistä"
+    assert askel(jalki, "Main-vahti")["env"]["SHA_ENNEN"] == "${{ inputs.vahti_sha }}"
+    paattyi = askel(jalki, "Korjauskierros päättyi")
+    assert paattyi["if"] == "always() && inputs.korjaa_pr != ''"
+    assert 'portti.cli ohjaus-ajo-paattyi --repo "$REPO" --pr "$KORJAA_PR" --haara "$HAARA"' in paattyi["run"], \
+        "moottori päättää PR:n tilasta, jääkö kierros ilman ihmistä"
 
 
 def test_kortti_ajon_portti_on_ennen_kielimallia_ja_malli_tulee_vain_siita() -> None:
@@ -175,7 +187,7 @@ def test_kortti_ajon_portti_on_ennen_kielimallia_ja_malli_tulee_vain_siita() -> 
     for vaatimus in ('kortin-tila --kortti "$kortti_polku" --vaadi hyväksytty', "matching-refs/heads/$HAARA",
                      "portti.cli malli --kortti", '"$TAPAHTUMA" = "workflow_dispatch"', 'gh api "users/$tunnus"',
                      "korjauskierros vaatii alkuperäisen ajon mallin", "on jo olemassa",
-                     "label agentti puuttuu", '"$pr_mallilabelit" != "malli-$nimi"', "head_ennen="):
+                     "label agentti puuttuu", '"$pr_mallilabelit" != "malli-$nimi"', "(syy yllä)"):
         assert vaatimus in tarkistukset, vaatimus
     assert askeleet[portti]["env"]["MALLI_KASIN"] == "${{ inputs.malli_kasin }}"
     teksti = (TYONKULUT / "kortti-ajo.yml").read_text(encoding="utf-8")
