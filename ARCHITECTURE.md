@@ -30,7 +30,7 @@ pinnatulla sha:lla.
 | `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste ja oma kirjoittaja; rikkinäinen konedata merkitään kelvottomaksi) |
 | `portti/ohjaus_toteutus.py` | edellisen päätöksen luku ohjauksen omasta kommentista; päätöksen soveltaminen: labelit, kortti-ajon käynnistys, katselmoijapyyntö varavalintoineen, kommentti; käynnistyksen ja pyynnön virhepolut |
 | `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-paattyi` |
-| `portti/kortti.py` | kortin metarivien luku (`- Tila:`, `- Malli:`) ylätason luetteloriveistä ilman koodilohkoja ja kommentteja, kortin haaran slug (`feature/<slug>`) |
+| `portti/kortti.py` | kortin metarivien luku (`- Tila:`, `- Malli:`) raakatekstistä kortin alkuosasta, rungon avainrivien arvot, kortin haaran slug (`feature/<slug>`) |
 | `portti/malli.py` | mallipäätös 6.11.2026 funktiona: sallitut mallit yhdessä vakiossa, valinta ja sen lähde |
 | `portti/cli_malli.py` | komennot `malli` ja `kortin-tila` |
 
@@ -56,7 +56,8 @@ tieto vie PR:n CTO:lle. Korjauskierros ei jää ilman ihmistä: jos kortti-ajoa 
 moottorin päätöksen keskeytyneelle ajolle (CTO, label `jumissa`), ja kortti-ajon jälkitarkistus tekee saman
 komennolla `ohjaus-ajo-paattyi`, kun PR odottaa ajon jälkeen yhä samaa kierrosta samalla headilla. Päätös
 pysäyttää kierrokset sille headille (`kierrokset_pysaytetty` konedatassa). Uudessa korjauskierroksessa kommentti
-kirjoitetaan ennen käynnistystä, koska kortti-ajo lukee siitä ohjauksen ohjeen.
+kirjoitetaan ennen käynnistystä, koska kortti-ajo lukee siitä ohjauksen ohjeen; käynnistys on kaksivaiheinen
+(`kaynnistys_kesken`), joten vahvistamatonta käynnistystä ei pidetä käynnissä olevana kierroksena.
 
 ## Mallin valinta
 

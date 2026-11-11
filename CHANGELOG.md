@@ -66,11 +66,14 @@
     ohjauskommentti kirjoitetaan ennen kortti-ajon käynnistystä. Uusi komento `ohjaus-ajo-paattyi` ajetaan
     korjauskierroksen kortti-ajon jälkeen: se vie PR:n CTO:lle vain, jos PR on kortin avoin agentin PR ja odottaa
     yhä samaa kierrosta samalla headilla. CTO:lle jumissa viety PR ei saa uutta kierrosta samalla headilla
-    (konedatan merkintä `kierrokset_pysaytetty`).
+    (konedatan merkintä `kierrokset_pysaytetty`). Käynnistys on kaksivaiheinen (`kaynnistys_kesken`):
+    vahvistamaton käynnistys ei jää tilaan korjauskierros, vaan PR menee CTO:lle.
   - Portin oma kommentti: vain kirjoittajan (`kommentti --kommentoija`, oletus `github-actions[bot]`) kommenttia
     päivitetään, ja konedata, joka ei jäsenny, ohitetaan luettaessa.
-  - Kortin metarivit: aidattujen koodilohkojen sisältöä ei lueta (aidat CommonMarkin mukaan), ja tila- tai
-    mallirivi väärässä muodossa tai HTML-kommentin sisällä estää ajon.
+  - Kortin metarivit luetaan raakatekstistä kortin alkuosasta (ennen ensimmäistä väliotsikkoa, vaakaviivaa,
+    koodilohkoa, kaavaa, HTML:ää tai kommenttia), joten esimerkkinä tai piilossa oleva rivi ei hyväksy korttia
+    eikä valitse mallia. Alkuosassa tila- tai mallirivi väärässä muodossa tai kahdesti estää ajon, ja rungossa
+    oleva mallirivi (arvona mallin nimi tai tunniste) estää ajon.
   - `ohjaus.yml`: evidence-artefakti puretaan työtilan ulkopuolelle; tiedostolistan kattavuus tarkistetaan.
   - `kortti-ajo.yml` ja uusi `kortti-ajo-jalkitarkistus.yml`: agentin jälkeiset tarkistukset ovat omassa
     jobissaan ja tiedostossaan puhtaalla runnerilla (lopputulos, labelit, yhteenveto, käytetyt mallit,

@@ -270,7 +270,10 @@ Idempotenssi: työnkulku lukee edellisen päätöksen ohjauksen oman kommentin k
 ja antaa sen moottorille. Ohjaus lukee ja päivittää vain kommentoijansa (`github-actions[bot]`) kirjoittamaa
 kommenttia: muun kirjoittajan kommentti, jossa on ohjauksen tunniste, ohitetaan. Jos oman kommentin konedata
 puuttuu tai ei jäsenny, korjauskierrosta odottava agentin PR menee CTO:lle; muihin riveihin edellinen päätös ei
-vaikuta. Jos edellinen päätös käynnisti korjauskierroksen tälle samalle headille, uusi päätös toistaa saman
+vaikuta. Käynnistys on kaksivaiheinen: ennen kortti-ajon käynnistystä kirjoitetun kommentin konedatassa on
+`kaynnistys_kesken`, ja onnistuneen käynnistyksen jälkeen kommentti kirjoitetaan ilman sitä. Jos vahvistus
+puuttuu (käynnistys tai jälkimmäinen kirjoitus epäonnistui), seuraava ohjausajo samalle headille ei oleta
+kierroksen olevan käynnissä eikä käynnistä uutta, vaan vie PR:n CTO:lle labelilla `jumissa`. Jos edellinen päätös käynnisti korjauskierroksen tälle samalle headille, uusi päätös toistaa saman
 kierroksen ja päätöksen kenttä `kaynnista_kortti_ajo` on false: kortti-ajoa ei käynnistetä toista kertaa,
 kierroslaskuri ei kasva eikä PR mene CTO:lle kesken korjauksen, vaikka ohjaus ajetaan samalle headille uudelleen
 (Testit ja Portti valmistuvat erikseen, tai ajo käynnistetään uudelleen). Uusi head aloittaa uuden arvion.
@@ -321,20 +324,24 @@ Kortin rivi tarkistetaan aina, kun se on olemassa: kortti, jossa on kielletty ma
 malli annettaisiin käsin. `portti malli --json` kertoo lisäksi mallin lähteen, tarkistajan mallin ja sallitut
 tunnisteet, joista kortti-ajo lukitsee aliagenttien mallin ja tarkistaa ajon jälkeen käytetyt mallit.
 
-Kortin tila- ja mallirivi ovat ylätason luettelorivejä (`- Malli: <arvo>`, myös `*` käy), ja moottori ei arvaa
-niitä:
+Kortin tila- ja mallirivi luetaan kortin raakatekstistä, eikä Markdownin rakennetta tulkita:
 
-- Aidatun koodilohkon sisältöä ei lueta: esimerkkirivi ei hyväksy korttia eikä valitse mallia. Aidat tulkitaan
-  CommonMarkin mukaan (lohkon sulkee vain sama merkki vähintään yhtä pitkänä ilman lisätekstiä).
-- Jos avain on kortissa muussa muodossa (korostettuna, numeroituna, muulla luettelomerkillä, tehtävälistan
-  ruudulla tai sisennettynä alilistaan) tai rivi alkaa HTML-kommentin sisältä, ajo ei käynnisty: kielletty arvo
-  ei ohitu muotoilun takia, eikä kommentin rajoja arvata.
-- Rivi ilman luettelomerkkiä kesken tekstiä ei ole metarivi.
+- Metarivit ovat kortin alkuosassa: otsikon jälkeen, ennen ensimmäistä väliotsikkoa, vaakaviivaa tai riviä, joka
+  voi avata koodilohkon, kaavan (`$$`), HTML-lohkon tai kommentin. Alkuosan rivi ei siis voi olla sellaisen
+  sisällä, eikä esimerkkinä, kommentoituna tai piilotettuna oleva rivi hyväksy korttia tai valitse mallia.
+- Metarivi on ylätason luettelorivi `- Avain: arvo` (myös `*` käy, sisennystä enintään kolme välilyöntiä). Jos
+  avain on alkuosassa muussa muodossa (korostettuna, numeroituna, muulla luettelomerkillä, tehtävälistan ruudulla
+  tai syvemmälle sisennettynä) tai kahdesti, ajo ei käynnisty: kielletty arvo ei ohitu muotoilun takia.
+- Alkuosan jälkeistä tekstiä (runkoa) ei lueta metariveiksi: rungon rivi `- Tila: maksettu` tai
+  `1. Malli: tilausmalli päivittyy` on kortin sisältöä. Poikkeus: jos rungossa on rivi, jonka avain on Malli ja
+  arvo mallin nimi tai tunniste (esimerkiksi `- Malli: sonnet` koodilohkon jälkeen), ajo ei käynnisty, koska
+  mallirivi on väärässä paikassa.
+- Rivi ilman luettelomerkkiä kesken tekstiä ei ole metarivi. Rivinvaihtoja ovat vain LF, CRLF ja CR.
 
-Seuraus: kortin rungossa ei voi olla luettelo- tai korostusriviä, joka alkaa sanalla Tila tai Malli (esimerkiksi
-hyväksymiskriteeri `1. Tila: avoin muuttuu tilaan maksettu`). Sellainen kortti ei käynnisty, ja virheilmoitus
-nimeää rivin. Muuta piilotettua HTML:ää (esimerkiksi `<details>`) ei tulkita: sen sisällä oleva rivi on kortin
-rivi. Kortti hyväksytään diffistä, ei renderöidystä näkymästä.
+Sääntö on tarkistettu satunnaistestillä CommonMark-jäsennintä (markdown-it) vasten 11.11.2026: 400 000
+satunnaisessa kortissa portti ei hyväksynyt tilaa eikä valinnut Fablea rivistä, jota CommonMark ei renderöi
+luettelokohtana, eikä valinnut hiljaa muuta mallia kuin näkyvän mallirivin. Testi ei ole repossa, koska
+markdown-it ei ole portin riippuvuus.
 
 Mitä mallin valinta ei estä: `portti malli` päättää, millä mallilla ajo käynnistetään, mutta ei valvo ajoa.
 Opus 5.5:n ja Fablen turvaluokitin voi siirtää ajon kesken vanhempaan Opus-malliin. Kortti-ajon jälkitarkistus
@@ -511,7 +518,8 @@ promptin samasta shasta (`job.workflow_sha`), joten pinnaus on yksi rivi per ty�
 - concurrency: sama ryhmän nimi kutsuvan työnkulun tasolla ja kutsutun työnkulun jobissa lukkiutuu, joten ryhmät
   ovat vain uudelleenkäytettävien työnkulkujen jobeissa eivätkä malleissa. Ryhmässä on yksi käynnissä oleva ja yksi
   odottava ajo; uudempi korvaa odottavan. Ei varmistettu ajamalla. Sekään ei ole varmistettu, että
-  jälkitarkistuksen `if: always()` -job ajetaan, kun agentin job peruuntuu jonosta.
+  jälkitarkistus ajetaan, kun agentin job peruuntuu jonosta tai koko ajo perutaan: `if: always()` on sekä
+  kutsuvalla jobilla että kutsutun työnkulun jobilla ja askelilla.
 - Kortti-ajon jälkitarkistus nojaa dokumentoituihin ominaisuuksiin, joita ei ole ajettu GitHubissa: jobien väliset
   tulosteet (`needs.<job>.outputs`) uudelleenkäytettävässä työnkulussa, `gh run download` saman, vielä käynnissä
   olevan ajon artefaktille ja sisäkkäinen uudelleenkäytettävä työnkulku paikallisella polulla
