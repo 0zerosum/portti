@@ -3,29 +3,34 @@
 ## 0.4.0
 
 - Ohjaus: uusi moduuli `portti/ohjaus.py` ja komento `portti ohjaa`. Deterministinen päätöstaulu (rivit a–e, README)
-  päättää evidencestä, testien tilasta, muuttuneista poluista, labeleista (`agentti`, `korjauskierros-<n>`) ja
-  forkkitiedosta, meneekö PR katselmoitavaksi, CTO:lle vai agentille korjauskierrokselle. Fail-closed: puuttuva
-  evidence, puuttuva testitulos, eri head tai `.github/**`- ja `.portti/**`-polut vievät CTO:lle. Päätös-JSON on
-  järjestetty eikä sisällä tunnuksia.
+  päättää evidencestä, testien tilasta, muuttuneista poluista, labeleista (`agentti`, `korjauskierros-<n>`),
+  forkkitiedosta ja edellisestä päätöksestä, meneekö PR katselmoitavaksi, CTO:lle vai agentille korjauskierrokselle.
+  Fail-closed: puuttuva evidence, puuttuva testitulos, eri head, tuntematon tier tai `.github/**`- ja
+  `.portti/**`-polut vievät CTO:lle. Päätös-JSON on järjestetty eikä sisällä tunnuksia.
 - Ohjauksen toteutus: `portti ohjaus-toteuta` (`portti/ohjaus_toteutus.py`, `portti/ohjaus_kommentti.py`) asettaa ja
   poistaa labelit (luo puuttuvat), pyytää katselmoijan roolin mukaan kuluttajarepon muuttujista (T1 puuttuu → CTO;
-  CTO puuttuu → ei pyyntöä, kommentti kertoo), kirjoittaa yhden päivittyvän ohjauskommentin ja käynnistää
-  korjauskierroksessa kuluttajan kortti-ajon `workflow_dispatch`-tapahtumalla. Idempotentti: sama päätös samalle
-  headille ei käynnistä kierrosta uudelleen. `GitHubApi`: labelit, katselmoijapyyntö, työnkulun käynnistys.
+  CTO puuttuu → ei pyyntöä, kommentti kertoo), kirjoittaa yhden päivittyvän ohjauskommentin ja käynnistää uudessa
+  korjauskierroksessa kuluttajan kortti-ajon `workflow_dispatch`-tapahtumalla. Idempotentti: `portti
+  ohjaus-edellinen` lukee edellisen päätöksen ohjauskommentista ja `portti ohjaa --edellinen` toistaa tälle headille
+  jo käynnistetyn kierroksen käynnistämättä uutta (`kaynnista_kortti_ajo`), joten kierroslaskuri ei kasva samasta
+  tilasta eikä PR mene CTO:lle kesken korjauksen. `GitHubApi`: labelit, katselmoijapyyntö, työnkulun käynnistys.
 - Uudelleenkäytettävä työnkulku `.github/workflows/ohjaus.yml` (`workflow_call`): ajetaan kuluttajan oletushaarasta
   `workflow_run`-tapahtumasta, ei hae eikä suorita PR:n koodia, hakee moottorin pinnatusta shasta
   (`job.workflow_repository`, `job.workflow_sha`), odottaa molempien työnkulkujen valmistumista samalle headille,
-  lataa evidencen Portti-ajon artefaktista ja muuttuneet polut API:sta. Toimii forkin PR:ille (PR haetaan head-shasta);
-  forkin PR ei koskaan käynnistä korjauskierrosta. Vähimmät oikeudet: contents read, pull-requests write, issues write,
-  actions write (vain dispatch).
+  lataa evidencen Portti-ajon artefaktista ja muuttuneet polut API:sta. Toimii forkin PR:ille: PR haetaan
+  head-haaran omistajasta, haarasta ja shasta. Forkin PR ei koskaan käynnistä korjauskierrosta. Vähimmät oikeudet:
+  contents read, pull-requests write, issues write, actions write (vain dispatch); token annetaan vain sitä
+  tarvitseville askelille. concurrency on vain uudelleenkäytettävän työnkulun jobissa, ei kuluttajan mallissa.
 - Uudelleenkäytettävä kortti-ajo `.github/workflows/kortti-ajo.yml` (`workflow_call`): rakentaa hyväksytyn kortin
   PR:ksi tai korjaa agentin PR:n korjauskierroksessa `anthropics/claude-code-action`illa (pinnattu v1.0.268-shaan)
   Claude GitHub Appin tokenilla. Syötteet kortti, korjaa_pr, malli (oletus claude-opus-5-5), max_turns, testikomennot,
   saantolohko_polku; salaisuus ANTHROPIC_API_KEY; budjetti muuttujasta PORTTI_AJO_BUDJETTI_USD (puuttuessa ajo ei
   käynnisty). Prompti on versioitu tiedosto `ajo/prompti.md`, jonka `ajo/kokoa_prompti.py` täyttää ja johon kuluttajan
   sääntölohko liitetään sanatarkasti. Työkalut rajataan sallittujen listaan (tiedostot, oman haaran git ja gh, repon
-  testikomennot sanatarkasti). Main-vahti havaitsee oletushaaran muutoksen ajon aikana, kaataa ajon ja kommentoi
-  CTO:lle; se ei estä. Yksi ajo kerrallaan repoa kohden.
+  asennus- ja testikomennot sanatarkasti); repon omia `.claude`-asetuksia ei ladata, ja agentin aliprosessit eivät
+  saa API-avainta ympäristöönsä. Portin kopio poistetaan työtilasta ennen agenttia, label `agentti` varmistetaan
+  ennen ajoa ja sen jälkeen, ja ajo kaatuu, jos action ohitti agentin ajon. Main-vahti havaitsee oletushaaran
+  muutoksen ajon aikana, kaataa ajon ja kommentoi CTO:lle; se ei estä. Yksi ajo kerrallaan repoa kohden.
 - Oletuspolicy: kuluttajan `.github/workflows/portti-ohjaus.yml` ja `.github/workflows/kortti-ajo.yml` lisätty
   kova-kategoriaan `portti_itse`; regressiotestit jokaiselle polulle.
 - Kuluttajan mallit kansiossa `mallit/` (portti.yml, portti-ohjaus.yml, kortti-ajo.yml) ja käyttöönotto-ohje README:ssä.

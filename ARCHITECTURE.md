@@ -26,22 +26,26 @@ pinnatulla sha:lla.
 | `portti/arviointi.py` | yhden arvioinnin kokoaminen: luokitus, verdict ja evidence samasta syötteestä (`arvioi`) |
 | `portti/cli.py` | komentorivin jäsennin ja ohjaus |
 | `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `kommentti`, `esto`, `tarkista-tapaukset`, `shadow-raportti` |
-| `portti/ohjaus.py` | ohjauksen päätöstaulu (rivit a–e), fail-closed, päätös-JSON; ei verkkoa |
+| `portti/ohjaus.py` | ohjauksen päätöstaulu (rivit a–e), fail-closed, jo käynnistetty kierros edellisestä päätöksestä, päätös-JSON; ei verkkoa |
 | `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste, ei sekoitu portin kommenttiin) |
-| `portti/ohjaus_toteutus.py` | päätöksen soveltaminen: labelit, katselmoijapyyntö, kommentti, kortti-ajon käynnistys idempotentisti |
-| `portti/cli_ohjaus.py` | komennot `ohjaa` ja `ohjaus-toteuta` |
+| `portti/ohjaus_toteutus.py` | edellisen päätöksen luku ohjauskommentista; päätöksen soveltaminen: labelit, katselmoijapyyntö, kommentti, kortti-ajon käynnistys |
+| `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa` ja `ohjaus-toteuta` |
 
 Riippuvuussuunta: `cli` → (`cli_komennot`, `cli_ohjaus`) → (`arviointi`, `kommentti`, `shadow`,
 `shadow_muotoilu`, `tapaukset`, `policy_lahde`, `ohjaus_toteutus`) → (`policy`, `git_diff`, `invariantit`,
 `github_api`, `ohjaus_kommentti`, `ohjaus`) → (`paallekkaisyys`, `polkumallit`, `verdict`). Alemmat eivät tunne
-ylempiä. `ohjaus` lukee evidencen sanakirjana eikä riipu luokittelusta: se saa kaiken syötteenä ja on puhdas funktio.
+ylempiä. `ohjaus` käyttää verdictin ja tierin vakioita, mutta ei laske mitään diffistä: se lukee evidencen
+sanakirjana, saa kaiken syötteenä ja on puhdas funktio.
 
 ## Ohjaus
 
 Ohjaus on moottorin osa ja deterministinen: `portti ohjaa` ei käytä verkkoa eikä kielimallia. Syötteet ovat
-evidence (tai tieto sen puuttumisesta), testityönkulun lopputulos PR:n headille, muuttuneet polut, PR:n labelit
-ja forkkitieto; tuloste on järjestetty päätös-JSON ilman tunnuksia. Toteutus (`ohjaus-toteuta`) on erillinen
-askel, joka puhuu GitHubille `GitHubApi`n kautta ja lukee idempotenssia varten edellisen ohjauskommentin konedatan.
+evidence (tai tieto sen puuttumisesta), testityönkulun lopputulos PR:n headille, muuttuneet polut, PR:n labelit,
+forkkitieto ja edellinen päätös; tuloste on järjestetty päätös-JSON ilman tunnuksia. Idempotenssi on moottorissa:
+`ohjaus-edellinen` lukee edellisen päätöksen ohjauskommentin konedatasta (head, toimenpide, kierros), ja jos se
+käynnisti korjauskierroksen tälle samalle headille, `ohjaa` toistaa kierroksen käynnistämättä uutta
+(`kaynnista_kortti_ajo`). Toteutus (`ohjaus-toteuta`) on erillinen askel, joka puhuu GitHubille `GitHubApi`n kautta
+ja käynnistää kortti-ajon vain, kun päätös sanoo niin.
 Katselmoijien tunnukset tulevat parametreina kuluttajarepon muuttujista; moottori ei tunne niitä.
 Työnkulku `.github/workflows/ohjaus.yml` ajetaan kuluttajan oletushaarasta (`workflow_run`), ei hae PR:n koodia
 ja hakee moottorin pinnatusta shasta.
