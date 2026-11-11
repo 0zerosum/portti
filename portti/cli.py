@@ -1,4 +1,4 @@
-"""Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti, ohjaa, ohjaus-toteuta.
+"""Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti, ohjaus-edellinen, ohjaa, ohjaus-toteuta.
 
 Toteutukset ovat cli_komennot.py:ssä ja cli_ohjaus.py:ssä.
 """
@@ -10,7 +10,12 @@ import sys
 from pathlib import Path
 
 from portti.cli_komennot import komento_arvioi, komento_esto, komento_kommentti, komento_shadow, komento_tapaukset
-from portti.cli_ohjaus import komento_ohjaa, komento_ohjaus_toteuta, lisaa_ohjaus_komennot
+from portti.cli_ohjaus import (
+    komento_ohjaa,
+    komento_ohjaus_edellinen,
+    komento_ohjaus_toteuta,
+    lisaa_ohjaus_komennot,
+)
 from portti.github_api import GitHubApi
 from portti.policy_lahde import LAHTEET, TILAT
 from portti.version import VERSIO
@@ -87,6 +92,8 @@ def main(argv: list[str] | None = None, api: GitHubApi | None = None) -> int:
         return komento_esto(argumentit)
     if argumentit.komento == "tarkista-tapaukset":
         return komento_tapaukset(argumentit)
+    if argumentit.komento == "ohjaus-edellinen":
+        return komento_ohjaus_edellinen(argumentit, api)
     if argumentit.komento == "ohjaa":
         return komento_ohjaa(argumentit)
     if argumentit.komento == "ohjaus-toteuta":

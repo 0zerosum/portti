@@ -1,4 +1,4 @@
-"""Komennot `ohjaa` ja `ohjaus-toteuta` päästä päähän: evidence synteettisestä reposta, vale-gh toteutukseen."""
+"""Komennot `ohjaus-edellinen`, `ohjaa` ja `ohjaus-toteuta` päästä päähän: evidence synteettisestä reposta, vale-gh GitHubina."""
 
 import json
 from pathlib import Path
@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from portti.cli import main
+from portti.ohjaus_kommentti import renderoi_ohjaus
 from tests.apu_gh import ValeGh
 from tests.apu_git import perusrepo, rivit
 
@@ -81,7 +82,8 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
     paatos = {
         "paatos_muoto": 1, "moottorin_versio": "0.4.0", "head_sha": "abc123abc123", "toimenpide": "korjauskierros",
         "lisaa_labelit": ["korjauskierros-1"], "poista_labelit": ["katselmoitavaksi"], "katselmoijan_rooli": None,
-        "kierros": 1, "ohje": "pienennä", "perustelu": "testit epäonnistuivat", "agentti": True, "forkki": False,
+        "kierros": 1, "kaynnista_kortti_ajo": True, "ohje": "pienennä", "perustelu": "testit epäonnistuivat",
+        "agentti": True, "forkki": False,
         "testit": "failure",
     }
     kohde = tmp_path / "paatos.json"
@@ -99,3 +101,43 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
     kelvoton.write_text('{"paatos_muoto": 9}', encoding="utf-8")
     with pytest.raises(ValueError):
         main(["ohjaus-toteuta", "--paatos", str(kelvoton), "--repo", "omistaja/keksitty", "--pr", "7"], api=vale.api())
+
+
+def test_ohjaus_edellinen_estaa_saman_kierroksen_kaynnistamisen_kahdesti(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    evidence, head = evidence_tiedosto(tmp_path, "repo")
+    polut = polut_tiedosto(tmp_path, POLKU)
+    ohjaa = ["ohjaa", "--head", head, "--testit", "failure", "--evidence", str(evidence), "--polut", str(polut)]
+    assert main([*ohjaa, "--labelit", "agentti"]) == 0
+    eka = json.loads(capsys.readouterr().out)
+    assert eka["kierros"] == 1 and eka["kaynnista_kortti_ajo"] is True
+    kommentit = [{"id": 1, "body": "ihmisen kommentti"}, {"id": 2, "body": renderoi_ohjaus(eka, None, [])}]
+    vale = ValeGh({"issues/7/comments": [kommentit]})
+    edellinen = tmp_path / "edellinen.json"
+    assert main(["ohjaus-edellinen", "--repo", "omistaja/keksitty", "--pr", "7", "--tuloste", str(edellinen)], api=vale.api()) == 0
+    assert "korjauskierros headille" in capsys.readouterr().err
+    assert json.loads(edellinen.read_text(encoding="utf-8")) == {
+        "head_sha": head, "toimenpide": "korjauskierros", "kierros": 1, "moottorin_versio": eka["moottorin_versio"],
+    }
+    assert main([*ohjaa, "--labelit", "agentti,korjauskierros-1", "--edellinen", str(edellinen)]) == 0
+    toka = json.loads(capsys.readouterr().out)
+    assert toka["kierros"] == 1 and toka["kaynnista_kortti_ajo"] is False and toka["lisaa_labelit"] == ["korjauskierros-1"]
+
+
+def test_ohjaus_edellinen_ilman_kommenttia_ja_kelvoton_tiedosto(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tyhja = ValeGh({"issues/7/comments": [[]]})
+    assert main(["ohjaus-edellinen", "--repo", "omistaja/keksitty", "--pr", "7"], api=tyhja.api()) == 0
+    tuloste = capsys.readouterr()
+    assert tuloste.out == "null\n" and "ei aiempaa päätöstä" in tuloste.err
+    evidence, head = evidence_tiedosto(tmp_path, "repo")
+    ohjaa = ["ohjaa", "--head", head, "--testit", "failure", "--evidence", str(evidence),
+             "--polut", str(polut_tiedosto(tmp_path, POLKU)), "--labelit", "agentti"]
+    ei_paatosta = tmp_path / "null.json"
+    ei_paatosta.write_text("null\n", encoding="utf-8")
+    assert main([*ohjaa, "--edellinen", str(ei_paatosta)]) == 0
+    assert json.loads(capsys.readouterr().out)["kaynnista_kortti_ajo"] is True
+    with pytest.raises(ValueError, match="tiedostoa ei ole"):
+        main([*ohjaa, "--edellinen", str(tmp_path / "puuttuu.json")])
+    lista = tmp_path / "lista.json"
+    lista.write_text("[1]", encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON-objekti tai null"):
+        main([*ohjaa, "--edellinen", str(lista)])

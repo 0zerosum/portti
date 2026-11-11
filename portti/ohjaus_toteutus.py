@@ -1,8 +1,8 @@
 """Ohjauspäätöksen toteutus GitHubissa: labelit, katselmoijapyyntö, ohjauskommentti ja korjauskierroksen käynnistys.
 
-Idempotentti: sama päätös samalle headille ei käynnistä kortti-ajoa uudelleen (edellinen päätös luetaan
-ohjauskommentin konedatasta ennen kommentin päivitystä). Katselmoijien tunnukset tulevat parametreina,
-eivät reposta.
+Kortti-ajo käynnistetään vain, kun päätös sanoo niin (`kaynnista_kortti_ajo`): moottori päättää sen
+edellisestä päätöksestä, jonka `edellinen_paatos` lukee ohjauskommentin konedatasta ennen päätöstä.
+Katselmoijien tunnukset tulevat parametreina, eivät reposta.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ LABELIEN_VARIT = {
     LABEL_AGENTTI: "5319e7",
 }
 OLETUSVARI = "c5def5"
-IDEMPOTENSSIN_AVAIMET = ("head_sha", "toimenpide", "kierros")
 
 
 @dataclass(frozen=True)
@@ -67,15 +66,12 @@ def labelin_vari(label: str) -> str:
 
 
 def edellinen_paatos(api: GitHubApi, repo: str, pr_numero: int) -> dict[str, Any] | None:
+    """PR:n ohjauskommentin konedata (head, toimenpide, kierros) tai None, jos ohjaus ei ole vielä kommentoinut."""
     for kommentti in api.hae_kommentit(repo, pr_numero):
         konedata = lue_ohjauksen_konedata(str(kommentti.get("body", "")))
         if konedata is not None:
             return konedata
     return None
-
-
-def sama_paatos(edellinen: dict[str, Any] | None, paatos: dict[str, Any]) -> bool:
-    return edellinen is not None and all(edellinen.get(avain) == paatos.get(avain) for avain in IDEMPOTENSSIN_AVAIMET)
 
 
 def _varmista_labelit(api: GitHubApi, repo: str, labelit: list[str]) -> list[str]:
@@ -113,12 +109,12 @@ def _pyyda_katselmoija(api: GitHubApi, repo: str, pr_numero: int, valinta: Katse
 
 
 def _kaynnista_korjaus(
-    api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], korjausajo: KorjausAjo | None, sama: bool
+    api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], korjausajo: KorjausAjo | None
 ) -> str | None:
     if paatos["toimenpide"] != KORJAUSKIERROS:
         return None
-    if sama:
-        return "korjauskierrosta ei käynnistetty uudelleen: sama päätös on jo kirjattu tälle headille"
+    if not paatos.get("kaynnista_kortti_ajo"):
+        return f"kortti-ajoa ei käynnistetty uudelleen: kierros {paatos.get('kierros')} on jo käynnistetty tälle headille"
     if korjausajo is None:
         return "korjauskierrosta ei käynnistetty: kortti-ajoa ei ole määritetty"
     syotteet = {"kortti": korjausajo.kortti, "korjaa_pr": str(pr_numero)}
@@ -134,8 +130,7 @@ def toteuta(
     toimet = _paivita_labelit(api, repo, pr_numero, paatos)
     valinta = ratkaise_katselmoija(paatos.get("katselmoijan_rooli"), katselmoijat)
     pyynto = _pyyda_katselmoija(api, repo, pr_numero, valinta)
-    sama = sama_paatos(edellinen_paatos(api, repo, pr_numero), paatos)
-    kaynnistys = _kaynnista_korjaus(api, repo, pr_numero, paatos, korjausajo, sama)
+    kaynnistys = _kaynnista_korjaus(api, repo, pr_numero, paatos, korjausajo)
     huomautukset = [huomautus for huomautus in (valinta.huomautus, pyynto, kaynnistys) if huomautus]
     teksti = renderoi_ohjaus(paatos, valinta.tunnus, huomautukset)
     toimet += [huomautus for huomautus in (pyynto, kaynnistys) if huomautus]

@@ -3,7 +3,8 @@
 Deterministinen ja ilman kielimallia. Fail-closed: puuttuva tai ristiriitainen tieto vie PR:n CTO:lle.
 Päätöstaulun rivit a–e ovat README:n Ohjaus-osiossa; jokaisella rivillä on testi (tests/test_ohjaus.py).
 Korjauskierrosten määrä luetaan PR:n labeleista `korjauskierros-<n>`, jotka ovat pysyvä laskuri eikä
-niitä koskaan poisteta. Agentin PR tunnistetaan labelista `agentti`.
+niitä koskaan poisteta. Agentin PR tunnistetaan labelista `agentti`. Edellinen päätös (ohjauskommentin
+konedata) kertoo, onko tälle headille jo käynnistetty kierros: sama tila ei käynnistä toista.
 """
 
 from __future__ import annotations
@@ -13,8 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from portti.luokittelu import TIER_YLI
 from portti.polkumallit import ensimmainen_osuma
-from portti.verdict import KOVA, LIIAN_ISO, PEHMEA, PUUTE, VAPAA
+from portti.verdict import KOVA, LIIAN_ISO, PEHMEA, PUUTE, TIERIT_PORTAITTAIN, VAPAA
 from portti.version import VERSIO
 
 TESTIT_SUCCESS = "success"
@@ -42,7 +44,8 @@ KIERROS_ETULIITE = "korjauskierros-"
 HALLITUT_LABELIT = (LABEL_KATSELMOITAVAKSI, LABEL_KOVA, LABEL_JUMISSA, LABEL_KORJATTAVA, LABEL_LIIAN_ISO)
 
 OHJAUKSEN_KOVAT_POLUT = (".github/**", ".portti/**")
-T1_TIERIT = ("T0", "T1a", "T1b", "T1c")
+T1_TIERIT = TIERIT_PORTAITTAIN
+TUNNETUT_TIERIT = (*T1_TIERIT, TIER_YLI)
 KIERROKSIA_TESTEISTA = 2
 KIERROKSIA_KOOSTA = 1
 PAATOS_MUOTO = 1
@@ -57,6 +60,7 @@ class OhjausSyote:
     labelit: tuple[str, ...]
     forkki: bool = False
     evidence_huomautus: str | None = None
+    edellinen: dict[str, Any] | None = None
 
     @property
     def agentti(self) -> bool:
@@ -65,6 +69,21 @@ class OhjausSyote:
     @property
     def kierroksia(self) -> int:
         return kierroksia_labeleista(self.labelit)
+
+    @property
+    def kaynnistetty_kierros(self) -> int | None:
+        """Kierros, jonka ohjaus on jo käynnistänyt tälle headille, tai None.
+
+        Luetaan edellisen päätöksen konedatasta. Kelvoton kierrosnumero tulkitaan käynnistetyksi
+        kierrokseksi (labelien mukaan), jotta epäselvä tieto ei käynnistä maksullista ajoa kahdesti.
+        """
+        edellinen = self.edellinen or {}
+        if edellinen.get("toimenpide") != KORJAUSKIERROS or edellinen.get("head_sha") != self.pr_head_sha:
+            return None
+        kierros = edellinen.get("kierros")
+        if type(kierros) is int and kierros > 0:
+            return kierros
+        return max(self.kierroksia, 1)
 
 
 @dataclass(frozen=True)
@@ -75,6 +94,7 @@ class Paatos:
     perustelu: str
     kierros: int | None = None
     ohje: str | None = None
+    kaynnista: bool = False
 
 
 def kierroksia_labeleista(labelit: tuple[str, ...]) -> int:
@@ -112,12 +132,21 @@ def _rivi_a(syote: OhjausSyote) -> Paatos | None:
 
 
 def _korjauskierros_tai_cto(syote: OhjausSyote, raja: int, cto_label: str, perustelu: str, ohje: str) -> Paatos:
-    """Agentin PR: korjauskierros, kun kierroksia on alle rajan. Forkin PR ei käynnistä kierrosta koskaan."""
+    """Agentin PR: uusi korjauskierros, kun kierroksia on alle rajan. Forkin PR ei käynnistä kierrosta koskaan.
+
+    Jos tälle headille on jo käynnistetty kierros, päätös toistaa sen käynnistämättä uutta: sama tila ei
+    kuluta toista kierrosta eikä vie PR:ää CTO:lle kesken korjauksen.
+    """
     if syote.forkki:
         return _cto(LABEL_JUMISSA, f"{perustelu}; forkin PR ei käynnistä korjauskierrosta")
+    kaynnistetty = syote.kaynnistetty_kierros
+    if kaynnistetty is not None:
+        selite = f"{perustelu}; korjauskierros {kaynnistetty} on jo käynnistetty tälle headille"
+        return Paatos(KORJAUSKIERROS, (f"{KIERROS_ETULIITE}{kaynnistetty}",), None, selite, kaynnistetty, ohje)
     if syote.kierroksia < raja:
         kierros = syote.kierroksia + 1
-        return Paatos(KORJAUSKIERROS, (f"{KIERROS_ETULIITE}{kierros}",), None, perustelu, kierros, ohje)
+        labelit = (f"{KIERROS_ETULIITE}{kierros}",)
+        return Paatos(KORJAUSKIERROS, labelit, None, perustelu, kierros, ohje, kaynnista=True)
     return _cto(cto_label, f"{perustelu}; korjauskierroksia käytetty {syote.kierroksia}")
 
 
@@ -143,7 +172,9 @@ def _rivi_d(syote: OhjausSyote) -> Paatos:
 
 
 def _rivi_e(verdict: str, tier: str) -> Paatos:
-    """PEHMEÄ tai VAPAA ja testit success: katselmoitavaksi, rooli tierin mukaan."""
+    """PEHMEÄ tai VAPAA ja testit success: katselmoitavaksi, rooli tierin mukaan. Tuntematon tier menee CTO:lle."""
+    if tier not in TUNNETUT_TIERIT:
+        return _cto(LABEL_KOVA, f"tuntematon tier {tier!r}")
     rooli = ROOLI_T1 if tier in T1_TIERIT else ROOLI_CTO
     labelit = (LABEL_KATSELMOITAVAKSI, f"{TIER_ETULIITE}{tier}")
     return Paatos(KATSELMOITAVAKSI, labelit, rooli, f"portti: {verdict} tier {tier}, testit success")
@@ -181,6 +212,7 @@ def paatos_sanakirjaksi(syote: OhjausSyote, paatos: Paatos) -> dict[str, Any]:
         "poista_labelit": poista,
         "katselmoijan_rooli": paatos.katselmoijan_rooli,
         "kierros": paatos.kierros,
+        "kaynnista_kortti_ajo": paatos.kaynnista,
         "ohje": paatos.ohje,
         "perustelu": paatos.perustelu,
         "agentti": syote.agentti,

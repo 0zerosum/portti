@@ -63,7 +63,8 @@ class GitHubApi:
         return [str(label["name"]) for label in tulos]
 
     def luo_label(self, repo: str, nimi: str, vari: str, kuvaus: str) -> None:
-        self._aja(["label", "create", nimi, "--repo", repo, "--color", vari, "--description", kuvaus])
+        # --force: rinnakkainen ajo on voinut luoda saman labelin listauksen jälkeen; luonti ei saa kaatua siihen.
+        self._aja(["label", "create", nimi, "--repo", repo, "--color", vari, "--description", kuvaus, "--force"])
 
     def lisaa_labelit(self, repo: str, pr_numero: int, labelit: list[str]) -> None:
         self._aja(["pr", "edit", str(pr_numero), "--repo", repo, "--add-label", ",".join(labelit)])
