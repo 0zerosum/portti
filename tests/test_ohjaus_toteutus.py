@@ -1,4 +1,5 @@
-"""Päätöksen toteutus vale-gh:lla: labelit, katselmoija, ohjauskommentti ja korjauskierroksen käynnistys kerran per head."""
+"""Päätöksen toteutus vale-gh:lla: labelit, katselmoija, ohjauskommentti, korjauskierroksen käynnistys kerran per head
+ja virhepolut (käynnistys tai katselmoijapyyntö epäonnistuu)."""
 
 import json
 from typing import Any
@@ -17,6 +18,7 @@ from portti.ohjaus_toteutus import (
     ratkaise_katselmoija,
     toteuta,
 )
+from portti.version import VERSIO
 from tests.apu_gh import ValeGh
 
 REPO = "omistaja/keksitty"
@@ -56,12 +58,12 @@ def ohjaa(labelit: tuple[str, ...], edellinen: dict[str, Any] | None = None, hea
 
 
 def vale(kommentit: list[dict[str, Any]] | None = None, labelit: list[str] | None = None,
-         tekija: str = "keksitty-tekija") -> ValeGh:
+         tekija: str = "keksitty-tekija", virheet: dict[str, str] | None = None) -> ValeGh:
     return ValeGh({
         "label list": [{"name": nimi} for nimi in (labelit or ["agentti"])],
         "issues/7/comments": [kommentit or []],
         "pr view": {"author": {"login": tekija}},
-    })
+    }, virheet)
 
 
 def kutsu(vale_gh: ValeGh, *osat: str) -> list[str] | None:
@@ -79,29 +81,33 @@ def luotu_kommentti(vale_gh: ValeGh) -> str:
 
 
 @pytest.mark.parametrize(
-    "rooli, cto, t1, tunnus, huomautus",
+    "rooli, cto, t1, tekija, ehdokkaat, huomautus",
     [
-        (None, "keksitty-cto", "keksitty-t1", None, None),
-        ("t1", "keksitty-cto", "keksitty-t1", "keksitty-t1", None),
-        ("t1", "keksitty-cto", None, "keksitty-cto", "käytetään CTO:ta"),
-        ("cto", "keksitty-cto", "keksitty-t1", "keksitty-cto", None),
-        ("cto", None, "keksitty-t1", None, "katselmoija ei asetettu"),
-        ("t1", None, None, None, "katselmoija ei asetettu"),
+        (None, "keksitty-cto", "keksitty-t1", "", (), None),
+        ("t1", "keksitty-cto", "keksitty-t1", "", ("keksitty-t1", "keksitty-cto"), None),
+        ("t1", "keksitty-cto", None, "", ("keksitty-cto",), "käytetään CTO:ta"),
+        ("cto", "keksitty-cto", "keksitty-t1", "", ("keksitty-cto",), None),
+        ("cto", None, "keksitty-t1", "", (), "katselmoija ei asetettu"),
+        ("t1", None, None, "", (), "katselmoija ei asetettu"),
+        ("t1", "keksitty-cto", "keksitty-t1", "Keksitty-T1", ("keksitty-cto",), "on PR:n tekijä, käytetään CTO:ta"),
+        ("t1", "keksitty-cto", "keksitty-t1", "KEKSITTY-CTO", ("keksitty-t1",), None),
+        ("cto", "keksitty-cto", None, "keksitty-cto", (), "on PR:n tekijä, pyyntöä ei tehty"),
+        ("t1", None, "keksitty-t1", "keksitty-t1", (), "katselmoija ei asetettu"),
     ],
 )
-def test_ratkaise_katselmoija(rooli: str | None, cto: str | None, t1: str | None, tunnus: str | None,
-                              huomautus: str | None) -> None:
-    valinta = ratkaise_katselmoija(rooli, Katselmoijat(cto, t1))
-    assert valinta.tunnus == tunnus
+def test_ratkaise_katselmoija(rooli: str | None, cto: str | None, t1: str | None, tekija: str,
+                              ehdokkaat: tuple[str, ...], huomautus: str | None) -> None:
+    valinta = ratkaise_katselmoija(rooli, Katselmoijat(cto, t1), tekija)
+    assert valinta.ehdokkaat == ehdokkaat
     if huomautus is None:
-        assert valinta.huomautus is None
+        assert valinta.huomautukset == ()
     else:
-        assert valinta.huomautus is not None and huomautus in valinta.huomautus
+        assert any(huomautus in rivi for rivi in valinta.huomautukset)
 
 
 def test_toteuta_katselmoitavaksi_luo_labelit_pyytaa_katselmoijan_ja_kirjoittaa_kommentin() -> None:
     vale_gh = vale()
-    toimet = toteuta(vale_gh.api(), REPO, 7, paatos(), Asetukset(Katselmoijat("keksitty-cto", "keksitty-t1"), None))
+    tulos = toteuta(vale_gh.api(), REPO, 7, paatos(), Asetukset(Katselmoijat("keksitty-cto", "keksitty-t1"), None))
     luonnit = [argumentit for argumentit, _ in vale_gh.kutsut if argumentit[:2] == ["label", "create"]]
     assert [argumentit[2] for argumentit in luonnit] == ["katselmoitavaksi", "tier-T0"], "agentti on jo olemassa"
     assert all("--force" in argumentit for argumentit in luonnit), "rinnakkainen luonti ei kaada ajoa"
@@ -111,7 +117,7 @@ def test_toteuta_katselmoitavaksi_luo_labelit_pyytaa_katselmoijan_ja_kirjoittaa_
     runko = luotu_kommentti(vale_gh)
     assert runko.startswith(TUNNISTE) and "Katselmoija: keksitty-t1 (rooli t1)" in runko
     assert "**katselmoitavaksi**" in runko and "testiperustelu" in runko
-    assert any("ohjauskommentti luotu" in toimi for toimi in toimet)
+    assert any("ohjauskommentti luotu" in toimi for toimi in tulos.toimet) and tulos.virheita is False
 
 
 def test_toteuta_ilman_ctoa_ei_pyyda_ja_kommentti_kertoo() -> None:
@@ -127,7 +133,33 @@ def test_toteuta_ei_pyyda_tekijaa_katselmoijaksi() -> None:
     vale_gh = vale(tekija="keksitty-cto")
     toteuta(vale_gh.api(), REPO, 7, paatos(katselmoijan_rooli="cto"), Asetukset(Katselmoijat("keksitty-cto", None), None))
     assert kutsu(vale_gh, "--add-reviewer") is None
-    assert "on PR:n tekijä" in luotu_kommentti(vale_gh)
+    runko = luotu_kommentti(vale_gh)
+    assert "on PR:n tekijä, pyyntöä ei tehty" in runko and "Katselmoija: ei pyydetty" in runko
+
+
+def test_t1_tekijan_pr_pyytaa_cton_eika_riipu_kirjainkoosta() -> None:
+    vale_gh = vale(tekija="Keksitty-T1")
+    tulos = toteuta(vale_gh.api(), REPO, 7, paatos(), Asetukset(Katselmoijat("keksitty-cto", "keksitty-t1"), None))
+    assert tulos.virheita is False
+    assert kutsu(vale_gh, "--add-reviewer", "keksitty-t1") is None, "tekijää ei pyydetä, vaikka kirjainkoko eroaa"
+    assert kutsu(vale_gh, "--add-reviewer", "keksitty-cto") is not None
+    runko = luotu_kommentti(vale_gh)
+    assert "T1-katselmoija keksitty-t1 on PR:n tekijä, käytetään CTO:ta" in runko
+    assert "Katselmoija: keksitty-cto (rooli t1)" in runko
+
+
+def test_katselmoijapyynnon_virhe_kokeilee_ctota_ja_kirjataan() -> None:
+    katselmoijat = Asetukset(Katselmoijat("keksitty-cto", "keksitty-t1"), None)
+    vale_gh = vale(virheet={"--add-reviewer keksitty-t1": "GraphQL: Could not resolve to a User"})
+    tulos = toteuta(vale_gh.api(), REPO, 7, paatos(), katselmoijat)
+    assert tulos.virheita is True, "ajo merkitään epäonnistuneeksi, vaikka CTO saatiin pyydettyä"
+    assert kutsu(vale_gh, "--add-reviewer", "keksitty-cto") is not None
+    runko = luotu_kommentti(vale_gh)
+    assert "Katselmoija: keksitty-cto (rooli t1)" in runko
+    assert "katselmoijapyyntö epäonnistui (keksitty-t1): GraphQL: Could not resolve to a User" in runko
+    kumpikin = vale(virheet={"--add-reviewer": "HTTP 422"})
+    assert toteuta(kumpikin.api(), REPO, 7, paatos(), katselmoijat).virheita is True
+    assert "Katselmoija: ei pyydetty" in luotu_kommentti(kumpikin), "kommentti kirjoitetaan virheestä huolimatta"
 
 
 def test_toteuta_poistaa_labelit() -> None:
@@ -143,11 +175,11 @@ def test_toteuta_poistaa_labelit() -> None:
 def test_korjauskierros_kaynnistaa_kortti_ajon() -> None:
     vale_gh = vale()
     korjaus = korjauspaatos(kaynnista_kortti_ajo=True, ohje="pienennä")
-    toimet = toteuta(vale_gh.api(), REPO, 7, korjaus, Asetukset(Katselmoijat("keksitty-cto", None), AJO))
+    tulos = toteuta(vale_gh.api(), REPO, 7, korjaus, Asetukset(Katselmoijat("keksitty-cto", None), AJO))
     assert kutsu(vale_gh, "workflow", "run") == ["workflow", "run", "kortti-ajo.yml", "--repo", REPO, "--ref", "main",
                                                  "-f", "alkuperainen_malli=opus", "-f", "korjaa_pr=7",
                                                  "-f", "kortti=kortti-x"]
-    assert any("kortti-ajo käynnistetty" in toimi for toimi in toimet)
+    assert any("kortti-ajo käynnistetty" in toimi for toimi in tulos.toimet) and tulos.virheita is False
     assert "Ohje agentille: pienennä" in luotu_kommentti(vale_gh)
     assert kutsu(vale_gh, "--add-reviewer") is None, "korjauskierroksessa ei pyydetä katselmoijaa"
 
@@ -159,15 +191,30 @@ def test_jo_kaynnistettu_kierros_ei_kaynnista_kortti_ajoa() -> None:
     assert "kierros 1 on jo käynnistetty tälle headille" in luotu_kommentti(vale_gh)
 
 
-def test_korjauskierros_ilman_kortti_ajoa_ei_kaynnista() -> None:
+def test_korjauskierros_ilman_kortti_ajoa_tai_tietoja_vie_ctolle() -> None:
     vale_gh = vale()
-    toteuta(vale_gh.api(), REPO, 7, korjauspaatos(kaynnista_kortti_ajo=True), Asetukset(EI_KATSELMOIJIA, None))
-    assert kutsu(vale_gh, "workflow", "run") is None
-    assert "kortti-ajoa ei ole määritetty" in luotu_kommentti(vale_gh)
+    tulos = toteuta(vale_gh.api(), REPO, 7, korjauspaatos(kaynnista_kortti_ajo=True), Asetukset(EI_KATSELMOIJIA, None))
+    assert kutsu(vale_gh, "workflow", "run") is None and tulos.virheita is True
+    runko = luotu_kommentti(vale_gh)
+    assert "**CTO:lle**" in runko and "korjauskierrosta ei voitu käynnistää: kortti-ajoa ei ole määritetty" in runko
     ilman_mallia = vale()
     toteuta(ilman_mallia.api(), REPO, 7, korjauspaatos(kaynnista_kortti_ajo=True, alkuperainen_malli=None), Asetukset(EI_KATSELMOIJIA, AJO))
     assert kutsu(ilman_mallia, "workflow", "run") is None
     assert "päätöksestä puuttuu kortti tai alkuperäisen ajon malli" in luotu_kommentti(ilman_mallia)
+
+
+def test_kaynnistyksen_virhe_vie_prn_ctolle_jumissa() -> None:
+    """gh workflow run epäonnistuu: PR ei jää tilaan korjauskierros, vaan CTO saa sen labelilla jumissa."""
+    vale_gh = vale(virheet={"workflow run": "HTTP 404: workflow kortti-ajo.yml not found"})
+    korjaus = korjauspaatos(kaynnista_kortti_ajo=True, agentti=True)
+    tulos = toteuta(vale_gh.api(), REPO, 7, korjaus, Asetukset(Katselmoijat("keksitty-cto", None), AJO))
+    assert tulos.virheita is True
+    assert kutsu(vale_gh, "--add-label", "korjauskierros-1") is not None, "kierros jää laskuriin, vaikka ajo ei käynnistynyt"
+    assert kutsu(vale_gh, "--add-label", "jumissa,katselmoitavaksi") is not None
+    assert kutsu(vale_gh, "--add-reviewer", "keksitty-cto") is not None
+    runko = luotu_kommentti(vale_gh)
+    assert "**CTO:lle**" in runko and "korjauskierrosta ei voitu käynnistää" in runko and "HTTP 404" in runko
+    assert lue_ohjauksen_konedata(runko) == {"head_sha": HEAD, "toimenpide": "cto", "kierros": None, "moottorin_versio": VERSIO}
 
 
 def test_sama_head_kahdesti_kaynnistaa_kortti_ajon_vain_kerran() -> None:

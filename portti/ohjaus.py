@@ -284,6 +284,15 @@ def paatos_sanakirjaksi(syote: OhjausSyote, paatos: Paatos) -> dict[str, Any]:
     }
 
 
+def paatos_keskeytyneelle_ajolle(head_sha: str, labelit: tuple[str, ...], syy: str) -> dict[str, Any]:
+    """Kortti-ajoa ei saatu käyntiin tai se epäonnistui: PR menee CTO:lle labelilla jumissa.
+
+    Tulos on samaa muotoa kuin `paatos_sanakirjaksi`, joten toteutus soveltaa sen kuten minkä tahansa päätöksen.
+    """
+    syote = OhjausSyote(head_sha, TESTIT_PUUTTUU, None, (), labelit)
+    return paatos_sanakirjaksi(syote, _cto(LABEL_JUMISSA, syy))
+
+
 def paatos_tekstiksi(paatos: dict[str, Any]) -> str:
     return json.dumps(paatos, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 

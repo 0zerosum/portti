@@ -136,6 +136,7 @@ def komento_ohjaus_toteuta(argumentit: argparse.Namespace, api: GitHubApi) -> in
     katselmoijat = Katselmoijat(argumentit.katselmoija_cto or None, argumentit.katselmoija_t1 or None)
     korjausajo = KorjausAjo(argumentit.kortti_ajo, argumentit.oletushaara) if argumentit.kortti_ajo else None
     asetukset = Asetukset(katselmoijat, korjausajo, argumentit.kommentoija)
-    for toimi in toteuta(api, argumentit.repo, argumentit.pr, paatos, asetukset):
+    tulos = toteuta(api, argumentit.repo, argumentit.pr, paatos, asetukset)
+    for toimi in tulos.toimet:
         print(f"portti: ohjaus-toteuta: {toimi}", file=sys.stderr)
-    return 0
+    return 1 if tulos.virheita else 0

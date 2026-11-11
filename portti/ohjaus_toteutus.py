@@ -1,20 +1,32 @@
-"""Ohjauspäätöksen toteutus GitHubissa: labelit, katselmoijapyyntö, ohjauskommentti ja korjauskierroksen käynnistys.
+"""Ohjauspäätöksen toteutus GitHubissa: labelit, korjauskierroksen käynnistys, katselmoijapyyntö ja ohjauskommentti.
 
 Kortti-ajo käynnistetään vain, kun päätös sanoo niin (`kaynnista_kortti_ajo`): moottori päättää sen
 edellisestä päätöksestä, jonka `edellinen_paatos` lukee ohjauskommentin konedatasta ennen päätöstä.
 Ohjauskommentiksi kelpaa vain ohjauksen oman kirjoittajan kommentti (`Asetukset.kommentoija`): muiden
 kommentteja ei lueta eikä päivitetä, vaikka niissä olisi ohjauksen tunniste.
-Katselmoijien tunnukset tulevat parametreina, eivät reposta.
+
+Virhepolut ovat fail-closed. Jos kortti-ajoa ei saada käyntiin, PR viedään CTO:lle labelilla `jumissa`.
+Jos katselmoijapyyntö epäonnistuu, pyydetään seuraavaa ehdokasta ja virhe kirjataan kommenttiin. Kommentti
+kirjoitetaan molemmissa tapauksissa, ja `Toteutus.virheita` kertoo kutsujalle, että ajo on merkittävä
+epäonnistuneeksi. Katselmoijien tunnukset tulevat parametreina, eivät reposta.
 """
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from typing import Any
 
 from portti.github_api import GitHubApi
 from portti.kommentti import kirjoita_tai_paivita, kommentin_kirjoittaja
-from portti.ohjaus import KIERROS_ETULIITE, KORJAUSKIERROS, LABEL_AGENTTI, ROOLI_T1, TIER_ETULIITE
+from portti.ohjaus import (
+    KIERROS_ETULIITE,
+    KORJAUSKIERROS,
+    LABEL_AGENTTI,
+    ROOLI_T1,
+    TIER_ETULIITE,
+    paatos_keskeytyneelle_ajolle,
+)
 from portti.ohjaus_kommentti import OHJAUKSEN_KOMMENTOIJA, lue_ohjauksen_konedata, renderoi_ohjaus
 
 LABELIEN_VARIT = {
@@ -26,6 +38,7 @@ LABELIEN_VARIT = {
     LABEL_AGENTTI: "5319e7",
 }
 OLETUSVARI = "c5def5"
+GH_VIRHEEN_PITUUS = 200
 
 
 @dataclass(frozen=True)
@@ -36,8 +49,10 @@ class Katselmoijat:
 
 @dataclass(frozen=True)
 class KatselmoijaValinta:
-    tunnus: str | None
-    huomautus: str | None
+    """Katselmoijaehdokkaat pyyntöjärjestyksessä ja huomautukset siitä, miksi jotakuta ei pyydetä."""
+
+    ehdokkaat: tuple[str, ...]
+    huomautukset: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -57,16 +72,53 @@ class Asetukset:
     kommentoija: str = OHJAUKSEN_KOMMENTOIJA
 
 
-def ratkaise_katselmoija(rooli: str | None, katselmoijat: Katselmoijat) -> KatselmoijaValinta:
-    """T1 puuttuu → CTO. CTO puuttuu → ei pyyntöä ja huomautus."""
+@dataclass(frozen=True)
+class Toteutus:
+    """Tehdyt toimet lokiriveinä ja tieto siitä, epäonnistuiko jokin (ajo merkitään epäonnistuneeksi)."""
+
+    toimet: tuple[str, ...]
+    virheita: bool
+
+
+@dataclass(frozen=True)
+class _Kaynnistys:
+    huomautus: str | None
+    virhe: str | None
+
+
+@dataclass(frozen=True)
+class _Pyynto:
+    tunnus: str | None
+    virheet: tuple[str, ...]
+
+
+def _este(tunnus: str | None, tekija: str, muuttuja: str) -> str | None:
+    """Syy, miksi tunnusta ei voi pyytää katselmoijaksi, tai None. Tunnukset eivät riipu kirjainkoosta."""
+    if not tunnus:
+        return f"ei asetettu ({muuttuja} puuttuu)"
+    if tunnus.casefold() == tekija.casefold():
+        return f"{tunnus} on PR:n tekijä"
+    return None
+
+
+def ratkaise_katselmoija(rooli: str | None, katselmoijat: Katselmoijat, tekija: str = "") -> KatselmoijaValinta:
+    """T1-roolille T1 ja varalla CTO, CTO-roolille CTO. Puuttuvaa tunnusta ja PR:n tekijää ei pyydetä."""
     if rooli is None:
-        return KatselmoijaValinta(None, None)
-    if rooli == ROOLI_T1 and katselmoijat.t1:
-        return KatselmoijaValinta(katselmoijat.t1, None)
-    if katselmoijat.cto:
-        huomautus = "T1-katselmoijaa ei ole asetettu (PORTTI_KATSELMOIJA_T1), käytetään CTO:ta" if rooli == ROOLI_T1 else None
-        return KatselmoijaValinta(katselmoijat.cto, huomautus)
-    return KatselmoijaValinta(None, "katselmoija ei asetettu (PORTTI_KATSELMOIJA_CTO puuttuu)")
+        return KatselmoijaValinta((), ())
+    ehdokkaat: list[str] = []
+    huomautukset: list[str] = []
+    cto_este = _este(katselmoijat.cto, tekija, "PORTTI_KATSELMOIJA_CTO")
+    if rooli == ROOLI_T1:
+        t1_este = _este(katselmoijat.t1, tekija, "PORTTI_KATSELMOIJA_T1")
+        if t1_este is None:
+            ehdokkaat.append(str(katselmoijat.t1))
+        else:
+            huomautukset.append(f"T1-katselmoija {t1_este}" + (", käytetään CTO:ta" if cto_este is None else ""))
+    if cto_este is None:
+        ehdokkaat.append(str(katselmoijat.cto))
+    elif not ehdokkaat:
+        huomautukset.append(f"katselmoija {cto_este}, pyyntöä ei tehty")
+    return KatselmoijaValinta(tuple(ehdokkaat), tuple(huomautukset))
 
 
 def labelin_vari(label: str) -> str:
@@ -93,6 +145,12 @@ def edellinen_paatos(
     return None
 
 
+def _gh_virhe(virhe: subprocess.CalledProcessError) -> str:
+    """gh:n virheilmoituksen viimeinen rivi lyhennettynä."""
+    rivit = [rivi.strip() for rivi in str(virhe.stderr or "").splitlines() if rivi.strip()]
+    return (rivit[-1] if rivit else f"gh palautti koodin {virhe.returncode}")[:GH_VIRHEEN_PITUUS]
+
+
 def _varmista_labelit(api: GitHubApi, repo: str, labelit: list[str]) -> list[str]:
     olemassa = set(api.hae_labelit(repo))
     luodut = [label for label in labelit if label not in olemassa]
@@ -117,41 +175,69 @@ def _paivita_labelit(api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str
     return toimet
 
 
-def _pyyda_katselmoija(api: GitHubApi, repo: str, pr_numero: int, valinta: KatselmoijaValinta) -> str | None:
-    if valinta.tunnus is None:
-        return None
-    tekija = str(api.hae_pr(repo, pr_numero).get("author", {}).get("login", ""))
-    if tekija == valinta.tunnus:
-        return f"katselmoija {valinta.tunnus} on PR:n tekijä, pyyntöä ei tehty"
-    api.pyyda_katselmoija(repo, pr_numero, valinta.tunnus)
-    return f"katselmoija pyydetty: {valinta.tunnus}"
-
-
 def _kaynnista_korjaus(
     api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], korjausajo: KorjausAjo | None
-) -> str | None:
+) -> _Kaynnistys:
+    """Käynnistää kortti-ajon, kun päätös sanoo niin. Virhe tarkoittaa, ettei ajoa saatu käyntiin."""
     if paatos["toimenpide"] != KORJAUSKIERROS:
-        return None
+        return _Kaynnistys(None, None)
+    kierros = paatos.get("kierros")
     if not paatos.get("kaynnista_kortti_ajo"):
-        return f"kortti-ajoa ei käynnistetty uudelleen: kierros {paatos.get('kierros')} on jo käynnistetty tälle headille"
+        return _Kaynnistys(f"kortti-ajoa ei käynnistetty uudelleen: kierros {kierros} on jo käynnistetty tälle headille", None)
     if korjausajo is None:
-        return "korjauskierrosta ei käynnistetty: kortti-ajoa ei ole määritetty"
+        return _Kaynnistys(None, "kortti-ajoa ei ole määritetty")
     kortti, malli = paatos.get("kortti"), paatos.get("alkuperainen_malli")
     if not kortti or not malli:
-        return "korjauskierrosta ei käynnistetty: päätöksestä puuttuu kortti tai alkuperäisen ajon malli"
+        return _Kaynnistys(None, "päätöksestä puuttuu kortti tai alkuperäisen ajon malli")
     syotteet = {"kortti": str(kortti), "korjaa_pr": str(pr_numero), "alkuperainen_malli": str(malli)}
-    api.kaynnista_tyonkulku(repo, korjausajo.tyonkulku, korjausajo.haara, syotteet)
-    return f"kortti-ajo käynnistetty: {korjausajo.tyonkulku}, kortti {kortti}, malli {malli}, kierros {paatos.get('kierros')}"
+    try:
+        api.kaynnista_tyonkulku(repo, korjausajo.tyonkulku, korjausajo.haara, syotteet)
+    except subprocess.CalledProcessError as virhe:
+        return _Kaynnistys(None, f"työnkulun {korjausajo.tyonkulku} käynnistys epäonnistui ({_gh_virhe(virhe)})")
+    return _Kaynnistys(f"kortti-ajo käynnistetty: {korjausajo.tyonkulku}, kortti {kortti}, malli {malli}, kierros {kierros}", None)
 
 
-def toteuta(api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], asetukset: Asetukset) -> list[str]:
-    """Soveltaa päätöksen ja palauttaa tehdyt toimet lokiriveinä."""
+def _jumissa_paatos(paatos: dict[str, Any], virhe: str) -> dict[str, Any]:
+    """Korjauskierrosta ei saatu käyntiin: sama PR viedään CTO:lle. Kierroslabel jää laskuriin."""
+    labelit = (*(str(label) for label in paatos["lisaa_labelit"]), *((LABEL_AGENTTI,) if paatos.get("agentti") else ()))
+    syy = f"{paatos['perustelu']}; korjauskierrosta ei voitu käynnistää: {virhe}"
+    return paatos_keskeytyneelle_ajolle(str(paatos["head_sha"]), labelit, syy)
+
+
+def _pyyda_katselmoija(api: GitHubApi, repo: str, pr_numero: int, ehdokkaat: tuple[str, ...]) -> _Pyynto:
+    """Pyytää ensimmäisen ehdokkaan, jolle pyyntö onnistuu; epäonnistuneet pyynnöt palautetaan virheinä."""
+    virheet: list[str] = []
+    for tunnus in ehdokkaat:
+        try:
+            api.pyyda_katselmoija(repo, pr_numero, tunnus)
+        except subprocess.CalledProcessError as virhe:
+            virheet.append(f"katselmoijapyyntö epäonnistui ({tunnus}): {_gh_virhe(virhe)}")
+            continue
+        return _Pyynto(tunnus, tuple(virheet))
+    return _Pyynto(None, tuple(virheet))
+
+
+def _katselmointi(
+    api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], katselmoijat: Katselmoijat
+) -> tuple[KatselmoijaValinta, _Pyynto]:
+    rooli = paatos.get("katselmoijan_rooli")
+    if rooli is None:
+        return KatselmoijaValinta((), ()), _Pyynto(None, ())
+    tekija = str(api.hae_pr(repo, pr_numero).get("author", {}).get("login", ""))
+    valinta = ratkaise_katselmoija(str(rooli), katselmoijat, tekija)
+    return valinta, _pyyda_katselmoija(api, repo, pr_numero, valinta.ehdokkaat)
+
+
+def toteuta(api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], asetukset: Asetukset) -> Toteutus:
+    """Soveltaa päätöksen: labelit, korjauskierroksen käynnistys, katselmoijapyyntö ja ohjauskommentti."""
     toimet = _paivita_labelit(api, repo, pr_numero, paatos)
-    valinta = ratkaise_katselmoija(paatos.get("katselmoijan_rooli"), asetukset.katselmoijat)
-    pyynto = _pyyda_katselmoija(api, repo, pr_numero, valinta)
     kaynnistys = _kaynnista_korjaus(api, repo, pr_numero, paatos, asetukset.korjausajo)
-    huomautukset = [huomautus for huomautus in (valinta.huomautus, pyynto, kaynnistys) if huomautus]
-    teksti = renderoi_ohjaus(paatos, valinta.tunnus, huomautukset)
-    toimet += [huomautus for huomautus in (pyynto, kaynnistys) if huomautus]
+    if kaynnistys.virhe is not None:
+        paatos = _jumissa_paatos(paatos, kaynnistys.virhe)
+        toimet += [f"korjauskierrosta ei voitu käynnistää: {kaynnistys.virhe}", *_paivita_labelit(api, repo, pr_numero, paatos)]
+    valinta, pyynto = _katselmointi(api, repo, pr_numero, paatos, asetukset.katselmoijat)
+    huomautukset = [*valinta.huomautukset, *pyynto.virheet, *([kaynnistys.huomautus] if kaynnistys.huomautus else [])]
+    teksti = renderoi_ohjaus(paatos, pyynto.tunnus, huomautukset)
+    toimet += [*huomautukset, *([f"katselmoija pyydetty: {pyynto.tunnus}"] if pyynto.tunnus else [])]
     toimet.append(f"ohjauskommentti {kirjoita_tai_paivita(api, repo, pr_numero, teksti, asetukset.kommentoija)}")
-    return toimet
+    return Toteutus(tuple(toimet), kaynnistys.virhe is not None or bool(pyynto.virheet))

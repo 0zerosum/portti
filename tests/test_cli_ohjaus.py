@@ -102,6 +102,11 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
         argumentit for argumentit, _ in vale.kutsut]
     virhetuloste = capsys.readouterr().err
     assert "luotu labelit korjauskierros-1" in virhetuloste and "kortti-ajo käynnistetty" in virhetuloste
+    kaatuva = ValeGh({"label list": [], "issues/7/comments": [[]], "pr view": {"author": {"login": "keksitty-tekija"}}},
+                     {"workflow run": "HTTP 403: Resource not accessible by integration"})
+    assert main(["ohjaus-toteuta", "--paatos", str(kohde), "--repo", "omistaja/keksitty", "--pr", "7",
+                 "--kortti-ajo", "kortti-ajo.yml"], api=kaatuva.api()) == 1, "käynnistyksen virhe näkyy ajon tuloksessa"
+    assert "korjauskierrosta ei voitu käynnistää" in capsys.readouterr().err
     kelvoton = tmp_path / "kelvoton.json"
     kelvoton.write_text('{"paatos_muoto": 9}', encoding="utf-8")
     with pytest.raises(ValueError):
