@@ -41,8 +41,8 @@
   (valinnaiset), kortin hyväksymiskriteeri, tarkistaja-aliagentti Opuksella puhtaalla kontekstilla ja rivi "Ei
   ajettu oikealla datalla." Aliagentit pakotetaan tarkistajan malliin ja aliakset sonnet ja haiku ohjataan siihen.
   Työkalut rajataan sallittujen listaan (tiedostot, oman haaran git ja gh, repon asennus- ja testikomennot
-  sanatarkasti); repon omia `.claude`-asetuksia ei ladata, ja agentin aliprosessit eivät saa API-avainta
-  ympäristöönsä. Portin kopio poistetaan työtilasta ennen agenttia, labelit `agentti` ja `malli-<nimi>`
+  sanatarkasti); repon omia `.claude`-asetuksia ei ladata, ja API-avain poistetaan agentin aliprosessien
+  ympäristöstä parhaan kyvyn mukaan. Portin kopio poistetaan työtilasta ennen agenttia, labelit `agentti` ja `malli-<nimi>`
   varmistetaan ennen ajoa ja sen jälkeen, ja ajo kaatuu, jos action ohitti agentin ajon. `ajo/ajon_yhteenveto.py`
   kirjoittaa ajon yhteenvedon (malli, kortti, kesto, tokenit, kulu, käytetyt mallit) työnkulun yhteenvetoon ja PR:n
   kuvaukseen ja kaataa ajon, jos se käytti mallia, joka ei ole sallittu. Main-vahti havaitsee oletushaaran
@@ -55,6 +55,28 @@
 - CLAUDE.md repoon: tietoturvasääntö, julkisen repon rajoitteet, moottori ilman kielimallia, mallipäätös 6.11.2026,
   main vain CTO:n PR:llä, testikomennot. ARCHITECTURE: arviointi-moduuli taulukkoon, uudet moduulit ja
   riippuvuussuunta, kortti-ajo erillisenä komponenttina.
+- Katselmoinnin korjaukset (11.11.2026, kaksi puhtaan kontekstin tarkistajaa ja rivikohtainen luku):
+  - Ohjaus lukee ja päivittää vain oman kirjoittajansa (`github-actions[bot]`, `--kommentoija`) ohjauskommenttia.
+    Rikkinäinen konedata ei kaada ohjausta: korjauskierrosta odottava agentin PR menee CTO:lle.
+  - Rivi a: väärän muotoinen evidence ja vajaa tiedostolista (`ohjaa --polut-vajaat`) vievät CTO:lle. Outo
+    kierroslabel ei kaada ohjausta; kierroksiksi lasketaan vain ASCII-numerot.
+  - Toteutus: kortti-ajon käynnistyksen virhe vie PR:n CTO:lle labelilla `jumissa`. Katselmoijapyynnön virhe
+    kirjataan kommenttiin ja pyydetään seuraavaa ehdokasta; kun T1 on PR:n tekijä, pyydetään CTO; tunnusten
+    vertailu ei riipu kirjainkoosta. `ohjaus-toteuta` palauttaa virheessä 1. Uusi komento
+    `ohjaus-ajo-epaonnistui` vie epäonnistuneen korjauskierroksen PR:n CTO:lle.
+  - Kortin metarivit: aidatut koodilohkot ja HTML-kommentit ohitetaan, ja väärässä muodossa oleva tila- tai
+    mallirivi estää ajon.
+  - `ohjaus.yml`: evidence-artefakti puretaan työtilan ulkopuolelle; tiedostolistan kattavuus tarkistetaan.
+  - `kortti-ajo.yml`: agentin jälkeiset tarkistukset ovat omassa jobissaan puhtaalla runnerilla (lopputulos,
+    labelit, yhteenveto, käytetyt mallit, main-vahti), ja agentin jobiin jää agentin jälkeen vain tokenittomat
+    askeleet. Korjauskierroksen PR:ltä vaaditaan label `agentti` ja syötettä vastaava mallilabel; syötteet
+    tarkistetaan koko arvoltaan; PR haetaan vain repon omasta haarasta. Korjauskierros, joka epäonnistui,
+    peruuntui tai ei tuottanut committia, viedään CTO:lle.
+  - Prompti: korjauskierrokseen liitetään vain portin ja ohjauksen omat kommentit, eikä agentilla ole työkalua
+    PR:n kommenttien lukemiseen. Sääntölohkon `{{ }}` ei kaada kokoamista, promptin tulosteen erotin on
+    satunnainen, eikä testikomennossa saa olla jokerimerkkiä `*`.
+  - Ajon yhteenveto: mallitarkistus kaatuu, kun käytettyjä malleja ei voida todentaa, ja hyväksyy tunnisteen vain
+    sellaisenaan tai päätteillä `-VVVVKKPP` ja `[1m]`.
 
 ## 0.3.0
 

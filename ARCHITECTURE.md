@@ -26,11 +26,11 @@ pinnatulla sha:lla.
 | `portti/arviointi.py` | yhden arvioinnin kokoaminen: luokitus, verdict ja evidence samasta syötteestä (`arvioi`) |
 | `portti/cli.py` | komentorivin jäsennin ja ohjaus |
 | `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `kommentti`, `esto`, `tarkista-tapaukset`, `shadow-raportti` |
-| `portti/ohjaus.py` | ohjauksen päätöstaulu (rivit a–e), fail-closed, jo käynnistetty kierros edellisestä päätöksestä, päätös-JSON; ei verkkoa |
-| `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste, ei sekoitu portin kommenttiin) |
-| `portti/ohjaus_toteutus.py` | edellisen päätöksen luku ohjauskommentista; päätöksen soveltaminen: labelit, katselmoijapyyntö, kommentti, kortti-ajon käynnistys |
-| `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa` ja `ohjaus-toteuta` |
-| `portti/kortti.py` | kortin metarivien luku (`- Tila:`, `- Malli:`), kortin haaran slug (`feature/<slug>`) |
+| `portti/ohjaus.py` | ohjauksen päätöstaulu (rivit a–e), fail-closed, jo käynnistetty kierros edellisestä päätöksestä, päätös-JSON ja päätös keskeytyneelle kortti-ajolle; ei verkkoa |
+| `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste ja oma kirjoittaja; rikkinäinen konedata merkitään kelvottomaksi) |
+| `portti/ohjaus_toteutus.py` | edellisen päätöksen luku ohjauksen omasta kommentista; päätöksen soveltaminen: labelit, kortti-ajon käynnistys, katselmoijapyyntö varavalintoineen, kommentti; käynnistyksen ja pyynnön virhepolut |
+| `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-epaonnistui` |
+| `portti/kortti.py` | kortin metarivien luku (`- Tila:`, `- Malli:`) ylätason luetteloriveistä ilman koodilohkoja ja kommentteja, kortin haaran slug (`feature/<slug>`) |
 | `portti/malli.py` | mallipäätös 6.11.2026 funktiona: sallitut mallit yhdessä vakiossa, valinta ja sen lähde |
 | `portti/cli_malli.py` | komennot `malli` ja `kortin-tila` |
 
@@ -48,9 +48,13 @@ evidence (tai tieto sen puuttumisesta), testityönkulun lopputulos PR:n headille
 forkkitieto ja edellinen päätös; tuloste on järjestetty päätös-JSON ilman tunnuksia. Idempotenssi on moottorissa:
 `ohjaus-edellinen` lukee edellisen päätöksen ohjauskommentin konedatasta (head, toimenpide, kierros), ja jos se
 käynnisti korjauskierroksen tälle samalle headille, `ohjaa` toistaa kierroksen käynnistämättä uutta
-(`kaynnista_kortti_ajo`). Toteutus (`ohjaus-toteuta`) on erillinen askel, joka puhuu GitHubille `GitHubApi`n kautta
-ja käynnistää kortti-ajon vain, kun päätös sanoo niin. Uusi korjauskierros vaatii kortin slugin (PR:n haara
-`feature/<slug>`) ja alkuperäisen ajon mallin (label `malli-<nimi>`); puuttuva tieto vie PR:n CTO:lle.
+(`kaynnista_kortti_ajo`). Ohjauskommentiksi kelpaa vain ohjauksen oman kirjoittajan kommentti; jos sen konedataa
+ei voi lukea, korjauskierrosta odottava PR menee CTO:lle. Toteutus (`ohjaus-toteuta`) on erillinen askel, joka
+puhuu GitHubille `GitHubApi`n kautta ja käynnistää kortti-ajon vain, kun päätös sanoo niin. Uusi korjauskierros
+vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkuperäisen ajon mallin (label `malli-<nimi>`); puuttuva
+tieto vie PR:n CTO:lle. Korjauskierros ei jää ilman ihmistä: jos kortti-ajoa ei saada käyntiin, toteutus soveltaa
+moottorin päätöksen keskeytyneelle ajolle (CTO, label `jumissa`), ja kortti-ajon jälkitarkistus tekee saman
+komennolla `ohjaus-ajo-epaonnistui`, kun ajo epäonnistui tai ei tuottanut committia.
 
 ## Mallin valinta
 
@@ -67,8 +71,13 @@ ja hakee moottorin pinnatusta shasta.
 `.github/workflows/kortti-ajo.yml`, `ajo/prompti.md`, `ajo/kokoa_prompti.py` ja `ajo/ajon_yhteenveto.py`
 muodostavat kortti-ajon, joka käyttää kielimallia (claude-code-action) kuluttajarepossa. Moottori (`portti/`) ei
 tuo mitään kortti-ajosta eivätkä kortti-ajon skriptit tuo moottoria: kokoaja ja yhteenveto ovat vakiokirjaston
-skriptejä, joita ajetaan `python -I`. Työnkulku kutsuu moottoria vain komentoina ennen kielimallia
-(`portti kortin-tila`, `portti malli`) ja antaa agentille mallin vain `portti malli` -askeleen tulosteesta.
+skriptejä, joita ajetaan `python -I`. Työnkulussa on kaksi jobia. Ensimmäinen kutsuu moottoria komentoina
+ennen kielimallia (`portti kortin-tila`, `portti malli`), antaa agentille mallin vain `portti malli` -askeleen
+tulosteesta ja ajaa agentin; agentin jälkeen siinä on vain askeleita ilman tokeneita. Toinen, jälkitarkistus,
+ajetaan puhtaalla runnerilla, koska agentti on voinut ajaa ensimmäisen jobin runnerilla mitä tahansa koodia: se
+lukee PR:n tilan GitHubin API:sta, ajaa yhteenvedon ja main-vahdin ja kutsuu moottorin komentoa
+`portti ohjaus-ajo-epaonnistui`, jos korjauskierros jäi tuloksetta. Ajon tulos (mallit, kesto, kulu) kulkee
+jobien välillä artefaktina ja on dataa agentin runnerilta.
 Kortti-ajon tuotos on PR, jonka Portti ja ohjaus arvioivat kuten minkä tahansa PR:n. Riippuvuussuunta: kortti-ajo
 → (prompti, kokoaja, yhteenveto) ja kortti-ajo → moottorin komennot; ohjaus → kortti-ajo vain
 `workflow_dispatch`-kutsuna, ei koodiriippuvuutena.
@@ -107,7 +116,9 @@ protectionia, koska Free-tason yksityisrepossa niitä ei ole.
 Ei globaalia tilaa. Kaikki funktiot saavat riippuvuutensa parametreina
 (repo-polku, policy, `GitHubApi`). Policyn virheet nostavat `PolicyVirhe`-poikkeuksen
 latauksessa; git- ja gh-virheet nousevat `subprocess.CalledProcessError`-poikkeuksena
-ja kaatavat ajon näkyvästi. Mitään ei nielaista.
+ja kaatavat ajon näkyvästi. Poikkeus on ohjauksen toteutus: kortti-ajon käynnistyksen ja katselmoijapyynnön
+gh-virhe käsitellään (PR CTO:lle tai seuraava ehdokas), kirjataan ohjauskommenttiin ja palautetaan kutsujalle
+virheenä, jolloin komento palauttaa 1. Mitään ei nielaista.
 
 ## Nimeäminen
 
