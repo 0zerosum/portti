@@ -1,19 +1,35 @@
 # Kuluttajarepon kortti-ajo. Kopioi polkuun .github/workflows/kortti-ajo.yml ja korvaa <PINNATTU_SHA>.
 # Käynnistys: CTO käsin (Actions > Kortti-ajo > Run workflow) tai ohjaus korjauskierroksessa
-# (workflow_dispatch GITHUB_TOKENilla, syötteinä kortti ja korjaa_pr).
+# (workflow_dispatch GITHUB_TOKENilla, syötteinä kortti, korjaa_pr ja alkuperainen_malli).
 # Vaatii: Claude GitHub App asennettuna tähän repoon, salaisuus ANTHROPIC_API_KEY ja muuttuja
 # PORTTI_AJO_BUDJETTI_USD (ilman sitä ajo ei käynnisty). Sääntölohko: .portti/saannot.md.
+# Malli: kortin rivi "- Malli:" tai oletus opus; fable vain hyväksytyllä korttirivillä tai käsin valittuna.
+# Ajoa ei ajasteta: se käynnistetään käsin, kunnes CTO päättää aikataulusta.
 name: Kortti-ajo
 
 on:
   workflow_dispatch:
     inputs:
       kortti:
-        description: Kortin slug (kortit/<slug>.md); työ tehdään haaraan <slug>.
+        description: Kortin slug (kortit/<slug>.md); työ tehdään haaraan feature/<slug>.
         required: true
         type: string
       korjaa_pr:
         description: Korjauskierros PR-numerolle (ohjaus täyttää; tyhjä = uusi kortti).
+        required: false
+        type: string
+        default: ""
+      malli_kasin:
+        description: Käsin valittu malli. Vain ihmisen käynnistämässä ajossa, ei korjauskierroksessa.
+        required: false
+        type: choice
+        options:
+          - kortin mukaan
+          - opus
+          - fable
+        default: kortin mukaan
+      alkuperainen_malli:
+        description: Korjauskierros, alkuperäisen ajon malli (ohjaus täyttää PR:n labelista).
         required: false
         type: string
         default: ""
@@ -36,14 +52,18 @@ jobs:
     with:
       kortti: ${{ inputs.kortti }}
       korjaa_pr: ${{ inputs.korjaa_pr }}
+      malli_kasin: ${{ inputs.malli_kasin != 'kortin mukaan' && inputs.malli_kasin || '' }}
+      alkuperainen_malli: ${{ inputs.alkuperainen_malli }}
       max_turns: ${{ inputs.max_turns }}
-      malli: claude-opus-5-5
       # Repon omat asennus- ja testikomennot sanatarkasti, asennus ensin; vain nämä sallitaan agentille.
       # Ei lainaus-, ohjaus- eikä erotinmerkkejä. Keksitty esimerkki.
       testikomennot: |
         python -m pip install -r requirements-dev.txt
         python -m pytest -q
         python -m mypy --strict sovellus
+      # true = agentti päivittää kortin tilarivin haarassa (työn alla, PR), kuten määrittelyssä.
+      # false = feature-PR ei muuta korttia, kun repon prosessissa kortin tila päätellään.
+      kortin_tilarivit: true
       saantolohko_polku: .portti/saannot.md
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
