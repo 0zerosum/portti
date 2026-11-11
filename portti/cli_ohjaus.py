@@ -35,6 +35,8 @@ def _lisaa_ohjaa(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser
     komento.add_argument("--testit", choices=TESTIEN_TILAT, required=True, help="testityönkulun lopputulos PR:n headille")
     komento.add_argument("--evidence", type=Path, default=None, help="Portti-ajon evidence-JSON; puuttuva tiedosto on puute")
     komento.add_argument("--polut", type=Path, required=True, help="PR:n muuttuneet polut, yksi riviä kohden")
+    komento.add_argument("--polut-vajaat", action="store_true",
+                         help="polkulista ei kata kaikkia PR:n tiedostoja (GitHub palauttaa enintään 3000): PR menee CTO:lle")
     komento.add_argument("--labelit", default="", help="PR:n nykyiset labelit pilkuilla eroteltuna")
     komento.add_argument("--forkki", action="store_true", help="PR tulee forkista: korjauskierrosta ei käynnistetä")
     komento.add_argument("--haara", default="", help="PR:n haara; kortin slug luetaan muodosta feature/<slug>")
@@ -117,6 +119,7 @@ def komento_ohjaa(argumentit: argparse.Namespace) -> int:
         evidence_huomautus=huomautus,
         edellinen=_lue_edellinen(argumentit.edellinen),
         haara=argumentit.haara or None,
+        polut_vajaat=argumentit.polut_vajaat,
     )
     paatos = paatos_sanakirjaksi(syote, paata(syote))
     teksti = paatos_tekstiksi(paatos)

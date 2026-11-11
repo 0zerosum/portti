@@ -53,6 +53,11 @@ def syote(**muutokset: Any) -> OhjausSyote:
         ({"evidence": evidence(head="muu")}, "evidence on headista"),
         ({"muuttuneet_polut": ("palvelin/x.py", ".github/workflows/testit.yml")}, "PR muuttaa polkua .github/workflows/testit.yml"),
         ({"muuttuneet_polut": (".portti/policy.yml",)}, "PR muuttaa polkua .portti/policy.yml"),
+        ({"polut_vajaat": True}, "muuttuneiden polkujen lista on vajaa"),
+        ({"evidence": {**evidence(), "luokitus": None}}, "evidence ei kelpaa: luokitus puuttuu tai ei ole objekti"),
+        ({"evidence": {**evidence(), "luokitus": ["T0"]}}, "evidence ei kelpaa: luokitus puuttuu tai ei ole objekti"),
+        ({"evidence": {**evidence("PUUTE"), "luokitus": {"tier": "T0", "puutteet": "luonnos"}}},
+         "evidence ei kelpaa: luokituksen puutteet eivät ole lista"),
     ],
 )
 def test_rivi_a_fail_closed_vie_ctolle(muutos: dict[str, Any], syy: str) -> None:
@@ -229,6 +234,9 @@ def test_kelvoton_kierros_edellisessa_paatoksessa_ei_kaynnista_uutta_ajoa(kierro
 def test_kierroksia_labeleista() -> None:
     assert kierroksia_labeleista(("korjauskierros-2", "korjauskierros-x", "korjauskierros-1", "agentti")) == 2
     assert kierroksia_labeleista(()) == 0
+    outoja = ("korjauskierros-²", "korjauskierros-١", "korjauskierros-" + "9" * 5000, "korjauskierros-", "korjauskierros-1")
+    assert kierroksia_labeleista(outoja) == 1, "vain ASCII-numerot lasketaan, eikä outo label kaada ohjausta"
+    assert paata(syote(testit="failure", labelit=(*AGENTTI, *outoja))).kierros == 2
 
 
 def test_paatos_json_poistaa_vain_hallitut_labelit_ja_on_deterministinen() -> None:

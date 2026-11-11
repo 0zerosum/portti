@@ -13,6 +13,7 @@ Uusi korjauskierros vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkupe
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ T1_TIERIT = TIERIT_PORTAITTAIN
 TUNNETUT_TIERIT = (*T1_TIERIT, TIER_YLI)
 KIERROKSIA_TESTEISTA = 2
 KIERROKSIA_KOOSTA = 1
+KIERROSNUMERO = re.compile(r"[0-9]{1,6}")
 PAATOS_MUOTO = 1
 EDELLINEN_KELVOTON = "kelvoton"
 
@@ -69,6 +71,7 @@ class OhjausSyote:
     evidence_huomautus: str | None = None
     edellinen: dict[str, Any] | None = None
     haara: str | None = None
+    polut_vajaat: bool = False
 
     @property
     def agentti(self) -> bool:
@@ -125,11 +128,11 @@ class Paatos:
 
 
 def kierroksia_labeleista(labelit: tuple[str, ...]) -> int:
-    """Suurin n labeleista `korjauskierros-<n>`; 0, jos niitä ei ole."""
+    """Suurin n labeleista `korjauskierros-<n>`; 0, jos niitä ei ole. Vain ASCII-numerot ovat kierroksia."""
     kierrokset = [0]
     for label in labelit:
         loppu = label[len(KIERROS_ETULIITE):]
-        if label.startswith(KIERROS_ETULIITE) and loppu.isdigit():
+        if label.startswith(KIERROS_ETULIITE) and KIERROSNUMERO.fullmatch(loppu):
             kierrokset.append(int(loppu))
     return max(kierrokset)
 
@@ -143,15 +146,30 @@ def _cto(label: str, perustelu: str) -> Paatos:
     return Paatos(CTO, (LABEL_KATSELMOITAVAKSI, label), ROOLI_CTO, perustelu)
 
 
+def _evidencen_muotovirhe(evidence: dict[str, Any]) -> str | None:
+    """Syy, jos evidencen rakenne ei ole se, jonka päätöstaulu lukee; muuten None."""
+    luokitus = evidence.get("luokitus")
+    if not isinstance(luokitus, dict):
+        return "luokitus puuttuu tai ei ole objekti"
+    if not isinstance(luokitus.get("puutteet", []), list):
+        return "luokituksen puutteet eivät ole lista"
+    return None
+
+
 def _rivi_a(syote: OhjausSyote) -> Paatos | None:
-    """Fail-closed: puuttuva tai ristiriitainen tieto ja portin omat polut vievät CTO:lle."""
+    """Fail-closed: puuttuva, vajaa tai ristiriitainen tieto ja portin omat polut vievät CTO:lle."""
     if syote.evidence is None:
         return _cto(LABEL_KOVA, syote.evidence_huomautus or "evidence puuttuu")
     if syote.testit not in (TESTIT_SUCCESS, TESTIT_FAILURE):
         return _cto(LABEL_KOVA, f"testien tila puuttuu ({syote.testit})")
+    muotovirhe = _evidencen_muotovirhe(syote.evidence)
+    if muotovirhe is not None:
+        return _cto(LABEL_KOVA, f"evidence ei kelpaa: {muotovirhe}")
     evidencen_head = str(syote.evidence.get("head_sha"))
     if evidencen_head != syote.pr_head_sha:
         return _cto(LABEL_KOVA, f"evidence on headista {evidencen_head[:12]}, PR:n head on {syote.pr_head_sha[:12]}")
+    if syote.polut_vajaat:
+        return _cto(LABEL_KOVA, "muuttuneiden polkujen lista on vajaa: kaikkia PR:n tiedostoja ei voitu tarkistaa")
     for polku in syote.muuttuneet_polut:
         if ensimmainen_osuma(polku, OHJAUKSEN_KOVAT_POLUT) is not None:
             return _cto(LABEL_KOVA, f"PR muuttaa polkua {polku}")

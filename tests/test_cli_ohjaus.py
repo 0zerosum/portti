@@ -58,6 +58,9 @@ def test_ohjaa_fail_closed_tapaukset(tmp_path: Path, capsys: pytest.CaptureFixtu
     kelvoton.write_text("{}", encoding="utf-8")
     assert main([*perus, "--head", head, "--evidence", str(kelvoton)]) == 0
     assert "evidence ei kelpaa" in json.loads(capsys.readouterr().out)["perustelu"]
+    assert main([*perus, "--head", head, "--evidence", str(evidence), "--polut-vajaat"]) == 0
+    vajaa = json.loads(capsys.readouterr().out)
+    assert vajaa["toimenpide"] == "cto" and "polkujen lista on vajaa" in vajaa["perustelu"]
     kohde = tmp_path / "paatos.json"
     polut_kova = polut_tiedosto(tmp_path, POLKU, ".github/workflows/portti.yml")
     assert main(["ohjaa", "--testit", "success", "--head", head, "--evidence", str(evidence), "--polut", str(polut_kova),
