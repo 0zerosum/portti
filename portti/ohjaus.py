@@ -5,6 +5,8 @@ Päätöstaulun rivit a–e ovat README:n Ohjaus-osiossa; jokaisella rivillä on
 Korjauskierrosten määrä luetaan PR:n labeleista `korjauskierros-<n>`, jotka ovat pysyvä laskuri eikä
 niitä koskaan poisteta. Agentin PR tunnistetaan labelista `agentti`. Edellinen päätös (ohjauskommentin
 konedata) kertoo, onko tälle headille jo käynnistetty kierros: sama tila ei käynnistä toista.
+Uusi korjauskierros vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkuperäisen ajon mallin
+(label `malli-<nimi>`); jos jompikumpi puuttuu, PR menee CTO:lle.
 """
 
 from __future__ import annotations
@@ -14,7 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from portti.kortti import HAARAN_ETULIITE, slug_haarasta
 from portti.luokittelu import TIER_YLI
+from portti.malli import SALLITUT_MALLIT
 from portti.polkumallit import ensimmainen_osuma
 from portti.verdict import KOVA, LIIAN_ISO, PEHMEA, PUUTE, TIERIT_PORTAITTAIN, VAPAA
 from portti.version import VERSIO
@@ -41,6 +45,7 @@ LABEL_KORJATTAVA = "korjattava"
 LABEL_LIIAN_ISO = "liian-iso"
 TIER_ETULIITE = "tier-"
 KIERROS_ETULIITE = "korjauskierros-"
+MALLI_ETULIITE = "malli-"
 HALLITUT_LABELIT = (LABEL_KATSELMOITAVAKSI, LABEL_KOVA, LABEL_JUMISSA, LABEL_KORJATTAVA, LABEL_LIIAN_ISO)
 
 OHJAUKSEN_KOVAT_POLUT = (".github/**", ".portti/**")
@@ -61,6 +66,7 @@ class OhjausSyote:
     forkki: bool = False
     evidence_huomautus: str | None = None
     edellinen: dict[str, Any] | None = None
+    haara: str | None = None
 
     @property
     def agentti(self) -> bool:
@@ -69,6 +75,20 @@ class OhjausSyote:
     @property
     def kierroksia(self) -> int:
         return kierroksia_labeleista(self.labelit)
+
+    @property
+    def kortti(self) -> str | None:
+        """Kortin slug PR:n haarasta `feature/<slug>`, tai None."""
+        return slug_haarasta(self.haara) if self.haara else None
+
+    @property
+    def alkuperainen_malli(self) -> str | None:
+        """Alkuperäisen ajon malli labelista `malli-<nimi>`. Puuttuva, moniselitteinen tai kielletty on None."""
+        nimet = {label[len(MALLI_ETULIITE):] for label in self.labelit if label.startswith(MALLI_ETULIITE)}
+        if len(nimet) != 1:
+            return None
+        nimi = next(iter(nimet))
+        return nimi if nimi in SALLITUT_MALLIT else None
 
     @property
     def kaynnistetty_kierros(self) -> int | None:
@@ -131,23 +151,36 @@ def _rivi_a(syote: OhjausSyote) -> Paatos | None:
     return None
 
 
+def _kaynnistyksen_este(syote: OhjausSyote) -> str | None:
+    """Kortti-ajo tarvitsee kortin slugin ja alkuperäisen ajon mallin. Puuttuva tieto on este, ei arvaus."""
+    if syote.kortti is None:
+        return f"PR:n haara ei ole muotoa {HAARAN_ETULIITE}<slug>"
+    if syote.alkuperainen_malli is None:
+        return f"alkuperäisen ajon malli ei ole tiedossa (yksi sallittu label {MALLI_ETULIITE}<nimi> puuttuu)"
+    return None
+
+
 def _korjauskierros_tai_cto(syote: OhjausSyote, raja: int, cto_label: str, perustelu: str, ohje: str) -> Paatos:
     """Agentin PR: uusi korjauskierros, kun kierroksia on alle rajan. Forkin PR ei käynnistä kierrosta koskaan.
 
     Jos tälle headille on jo käynnistetty kierros, päätös toistaa sen käynnistämättä uutta: sama tila ei
-    kuluta toista kierrosta eikä vie PR:ää CTO:lle kesken korjauksen.
+    kuluta toista kierrosta eikä vie PR:ää CTO:lle kesken korjauksen. Uusi kierros käynnistyy vain, kun
+    kortin slug ja alkuperäisen ajon malli ovat tiedossa; muuten PR menee CTO:lle.
     """
     if syote.forkki:
-        return _cto(LABEL_JUMISSA, f"{perustelu}; forkin PR ei käynnistä korjauskierrosta")
+        return _cto(cto_label, f"{perustelu}; forkin PR ei käynnistä korjauskierrosta")
     kaynnistetty = syote.kaynnistetty_kierros
     if kaynnistetty is not None:
         selite = f"{perustelu}; korjauskierros {kaynnistetty} on jo käynnistetty tälle headille"
         return Paatos(KORJAUSKIERROS, (f"{KIERROS_ETULIITE}{kaynnistetty}",), None, selite, kaynnistetty, ohje)
-    if syote.kierroksia < raja:
-        kierros = syote.kierroksia + 1
-        labelit = (f"{KIERROS_ETULIITE}{kierros}",)
-        return Paatos(KORJAUSKIERROS, labelit, None, perustelu, kierros, ohje, kaynnista=True)
-    return _cto(cto_label, f"{perustelu}; korjauskierroksia käytetty {syote.kierroksia}")
+    if syote.kierroksia >= raja:
+        return _cto(cto_label, f"{perustelu}; korjauskierroksia käytetty {syote.kierroksia}")
+    este = _kaynnistyksen_este(syote)
+    if este is not None:
+        return _cto(cto_label, f"{perustelu}; korjauskierrosta ei voi käynnistää: {este}")
+    kierros = syote.kierroksia + 1
+    labelit = (f"{KIERROS_ETULIITE}{kierros}",)
+    return Paatos(KORJAUSKIERROS, labelit, None, perustelu, kierros, ohje, kaynnista=True)
 
 
 def _rivi_c(syote: OhjausSyote, evidence: dict[str, Any]) -> Paatos:
@@ -200,7 +233,8 @@ def paata(syote: OhjausSyote) -> Paatos:
 
 
 def paatos_sanakirjaksi(syote: OhjausSyote, paatos: Paatos) -> dict[str, Any]:
-    """Päätös-JSON: järjestetyt listat, ei nimiä eikä tunnuksia."""
+    """Päätös-JSON: järjestetyt listat, ei nimiä eikä tunnuksia. Kortti ja malli vain korjauskierroksessa."""
+    korjaus = paatos.toimenpide == KORJAUSKIERROS
     lisaa = sorted(set(paatos.labelit))
     poista = sorted(label for label in set(syote.labelit) if on_hallittu_label(label) and label not in lisaa)
     return {
@@ -213,6 +247,8 @@ def paatos_sanakirjaksi(syote: OhjausSyote, paatos: Paatos) -> dict[str, Any]:
         "katselmoijan_rooli": paatos.katselmoijan_rooli,
         "kierros": paatos.kierros,
         "kaynnista_kortti_ajo": paatos.kaynnista,
+        "kortti": syote.kortti if korjaus else None,
+        "alkuperainen_malli": syote.alkuperainen_malli if korjaus else None,
         "ohje": paatos.ohje,
         "perustelu": paatos.perustelu,
         "agentti": syote.agentti,

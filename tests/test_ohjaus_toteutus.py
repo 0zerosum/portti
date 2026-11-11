@@ -20,7 +20,8 @@ from tests.apu_gh import ValeGh
 
 REPO = "omistaja/keksitty"
 HEAD = "abc123abc123"
-AJO = KorjausAjo("kortti-ajo.yml", "kortti-x", "main")
+AJO = KorjausAjo("kortti-ajo.yml", "main")
+AGENTTI = ("agentti", "malli-opus")
 EI_KATSELMOIJIA = Katselmoijat(None, None)
 
 
@@ -28,7 +29,8 @@ def paatos(toimenpide: str = "katselmoitavaksi", **muutokset: Any) -> dict[str, 
     perus: dict[str, Any] = {
         "paatos_muoto": 1, "moottorin_versio": "0.4.0", "head_sha": HEAD, "toimenpide": toimenpide,
         "lisaa_labelit": ["katselmoitavaksi", "tier-T0"], "poista_labelit": [], "katselmoijan_rooli": "t1",
-        "kierros": None, "kaynnista_kortti_ajo": False, "ohje": None, "perustelu": "testiperustelu",
+        "kierros": None, "kaynnista_kortti_ajo": False, "kortti": None, "alkuperainen_malli": None, "ohje": None,
+        "perustelu": "testiperustelu",
         "agentti": False, "forkki": False, "testit": "success",
     }
     perus.update(muutokset)
@@ -36,7 +38,8 @@ def paatos(toimenpide: str = "katselmoitavaksi", **muutokset: Any) -> dict[str, 
 
 
 def korjauspaatos(**muutokset: Any) -> dict[str, Any]:
-    perus: dict[str, Any] = {"lisaa_labelit": ["korjauskierros-1"], "katselmoijan_rooli": None, "kierros": 1}
+    perus: dict[str, Any] = {"lisaa_labelit": ["korjauskierros-1"], "katselmoijan_rooli": None, "kierros": 1,
+                             "kortti": "kortti-x", "alkuperainen_malli": "opus"}
     perus.update(muutokset)
     return paatos("korjauskierros", **perus)
 
@@ -44,7 +47,8 @@ def korjauspaatos(**muutokset: Any) -> dict[str, Any]:
 def ohjaa(labelit: tuple[str, ...], edellinen: dict[str, Any] | None = None, head: str = HEAD) -> dict[str, Any]:
     """Moottorin päätös agentin PR:lle, jonka testit kaatuivat: sama syöte kuin työnkulussa."""
     evidence = {"evidence_muoto": 1, "verdict": "VAPAA", "head_sha": head, "luokitus": {"tier": "T1a", "puutteet": []}}
-    syote = OhjausSyote(head, "failure", evidence, ("palvelin/x.py",), labelit, edellinen=edellinen)
+    syote = OhjausSyote(head, "failure", evidence, ("palvelin/x.py",), labelit, edellinen=edellinen,
+                        haara="feature/kortti-x")
     return paatos_sanakirjaksi(syote, paata(syote))
 
 
@@ -138,7 +142,8 @@ def test_korjauskierros_kaynnistaa_kortti_ajon() -> None:
     korjaus = korjauspaatos(kaynnista_kortti_ajo=True, ohje="pienennä")
     toimet = toteuta(vale_gh.api(), REPO, 7, korjaus, Katselmoijat("keksitty-cto", None), AJO)
     assert kutsu(vale_gh, "workflow", "run") == ["workflow", "run", "kortti-ajo.yml", "--repo", REPO, "--ref", "main",
-                                                 "-f", "korjaa_pr=7", "-f", "kortti=kortti-x"]
+                                                 "-f", "alkuperainen_malli=opus", "-f", "korjaa_pr=7",
+                                                 "-f", "kortti=kortti-x"]
     assert any("kortti-ajo käynnistetty" in toimi for toimi in toimet)
     assert "Ohje agentille: pienennä" in luotu_kommentti(vale_gh)
     assert kutsu(vale_gh, "--add-reviewer") is None, "korjauskierroksessa ei pyydetä katselmoijaa"
@@ -156,23 +161,27 @@ def test_korjauskierros_ilman_kortti_ajoa_ei_kaynnista() -> None:
     toteuta(vale_gh.api(), REPO, 7, korjauspaatos(kaynnista_kortti_ajo=True), EI_KATSELMOIJIA, None)
     assert kutsu(vale_gh, "workflow", "run") is None
     assert "kortti-ajoa ei ole määritetty" in luotu_kommentti(vale_gh)
+    ilman_mallia = vale()
+    toteuta(ilman_mallia.api(), REPO, 7, korjauspaatos(kaynnista_kortti_ajo=True, alkuperainen_malli=None), EI_KATSELMOIJIA, AJO)
+    assert kutsu(ilman_mallia, "workflow", "run") is None
+    assert "päätöksestä puuttuu kortti tai alkuperäisen ajon malli" in luotu_kommentti(ilman_mallia)
 
 
 def test_sama_head_kahdesti_kaynnistaa_kortti_ajon_vain_kerran() -> None:
     """Koko kulku kuten työnkulussa: Testit ja Portti valmistuvat erikseen, joten ohjaus ajetaan samalle headille kahdesti."""
-    eka = ohjaa(("agentti",))
+    eka = ohjaa(AGENTTI)
     assert eka["kierros"] == 1 and eka["kaynnista_kortti_ajo"] is True
     vale_eka = vale()
     toteuta(vale_eka.api(), REPO, 7, eka, EI_KATSELMOIJIA, AJO)
     assert kutsu(vale_eka, "workflow", "run") is not None
-    kommentoitu = vale(kommentit=[{"id": 3, "body": luotu_kommentti(vale_eka)}], labelit=["agentti", "korjauskierros-1"])
-    toka = ohjaa(("agentti", "korjauskierros-1"), edellinen_paatos(kommentoitu.api(), REPO, 7))
+    kommentoitu = vale(kommentit=[{"id": 3, "body": luotu_kommentti(vale_eka)}], labelit=[*AGENTTI, "korjauskierros-1"])
+    toka = ohjaa((*AGENTTI, "korjauskierros-1"), edellinen_paatos(kommentoitu.api(), REPO, 7))
     assert toka["kierros"] == 1 and toka["kaynnista_kortti_ajo"] is False
     assert toka["lisaa_labelit"] == ["korjauskierros-1"], "kierroslaskuri ei kasva samasta tilasta"
     toteuta(kommentoitu.api(), REPO, 7, toka, EI_KATSELMOIJIA, AJO)
     assert kutsu(kommentoitu, "workflow", "run") is None, "sama tila ei käynnistä toista korjauskierrosta"
     assert kutsu(kommentoitu, "PATCH") is not None, "kommentti päivittyy paikallaan"
-    uusi_head = ohjaa(("agentti", "korjauskierros-1"), edellinen_paatos(kommentoitu.api(), REPO, 7), head="def456def456")
+    uusi_head = ohjaa((*AGENTTI, "korjauskierros-1"), edellinen_paatos(kommentoitu.api(), REPO, 7), head="def456def456")
     assert uusi_head["kierros"] == 2 and uusi_head["kaynnista_kortti_ajo"] is True
 
 

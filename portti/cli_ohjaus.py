@@ -30,6 +30,7 @@ def _lisaa_ohjaa(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser
     komento.add_argument("--polut", type=Path, required=True, help="PR:n muuttuneet polut, yksi riviä kohden")
     komento.add_argument("--labelit", default="", help="PR:n nykyiset labelit pilkuilla eroteltuna")
     komento.add_argument("--forkki", action="store_true", help="PR tulee forkista: korjauskierrosta ei käynnistetä")
+    komento.add_argument("--haara", default="", help="PR:n haara; kortin slug luetaan muodosta feature/<slug>")
     komento.add_argument("--edellinen", type=Path, default=None,
                          help="edellinen päätös (ohjaus-edellinen): tälle headille jo käynnistetty kierros ei käynnisty uudelleen")
     komento.add_argument("--paatos", type=Path, default=None, help="päätös-JSONin kohdetiedosto (oletus stdout)")
@@ -43,7 +44,6 @@ def _lisaa_toteuta(alikomennot: argparse._SubParsersAction[argparse.ArgumentPars
     komento.add_argument("--katselmoija-cto", default="", help="CTO:n GitHub-tunnus (kuluttajarepon muuttuja)")
     komento.add_argument("--katselmoija-t1", default="", help="T1-katselmoijan GitHub-tunnus; puuttuessa käytetään CTO:ta")
     komento.add_argument("--kortti-ajo", default="", help="kuluttajan kortti-ajon työnkulkutiedosto korjauskierrosta varten")
-    komento.add_argument("--kortti", default="", help="kortin slug, sama kuin PR:n haara")
     komento.add_argument("--oletushaara", default="main", help="haara, jolta kortti-ajo käynnistetään")
 
 
@@ -108,6 +108,7 @@ def komento_ohjaa(argumentit: argparse.Namespace) -> int:
         forkki=argumentit.forkki,
         evidence_huomautus=huomautus,
         edellinen=_lue_edellinen(argumentit.edellinen),
+        haara=argumentit.haara or None,
     )
     paatos = paatos_sanakirjaksi(syote, paata(syote))
     teksti = paatos_tekstiksi(paatos)
@@ -122,9 +123,7 @@ def komento_ohjaa(argumentit: argparse.Namespace) -> int:
 def komento_ohjaus_toteuta(argumentit: argparse.Namespace, api: GitHubApi) -> int:
     paatos = lue_paatos(argumentit.paatos)
     katselmoijat = Katselmoijat(argumentit.katselmoija_cto or None, argumentit.katselmoija_t1 or None)
-    korjausajo = None
-    if argumentit.kortti_ajo and argumentit.kortti:
-        korjausajo = KorjausAjo(argumentit.kortti_ajo, argumentit.kortti, argumentit.oletushaara)
+    korjausajo = KorjausAjo(argumentit.kortti_ajo, argumentit.oletushaara) if argumentit.kortti_ajo else None
     for toimi in toteuta(api, argumentit.repo, argumentit.pr, paatos, katselmoijat, korjausajo):
         print(f"portti: ohjaus-toteuta: {toimi}", file=sys.stderr)
     return 0

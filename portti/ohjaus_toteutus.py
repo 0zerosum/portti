@@ -40,8 +40,9 @@ class KatselmoijaValinta:
 
 @dataclass(frozen=True)
 class KorjausAjo:
+    """Kuluttajan kortti-ajon työnkulkutiedosto ja haara, jolta se käynnistetään (oletushaara)."""
+
     tyonkulku: str
-    kortti: str
     haara: str
 
 
@@ -117,9 +118,12 @@ def _kaynnista_korjaus(
         return f"kortti-ajoa ei käynnistetty uudelleen: kierros {paatos.get('kierros')} on jo käynnistetty tälle headille"
     if korjausajo is None:
         return "korjauskierrosta ei käynnistetty: kortti-ajoa ei ole määritetty"
-    syotteet = {"kortti": korjausajo.kortti, "korjaa_pr": str(pr_numero)}
+    kortti, malli = paatos.get("kortti"), paatos.get("alkuperainen_malli")
+    if not kortti or not malli:
+        return "korjauskierrosta ei käynnistetty: päätöksestä puuttuu kortti tai alkuperäisen ajon malli"
+    syotteet = {"kortti": str(kortti), "korjaa_pr": str(pr_numero), "alkuperainen_malli": str(malli)}
     api.kaynnista_tyonkulku(repo, korjausajo.tyonkulku, korjausajo.haara, syotteet)
-    return f"kortti-ajo käynnistetty: {korjausajo.tyonkulku}, kortti {korjausajo.kortti}, kierros {paatos.get('kierros')}"
+    return f"kortti-ajo käynnistetty: {korjausajo.tyonkulku}, kortti {kortti}, malli {malli}, kierros {paatos.get('kierros')}"
 
 
 def toteuta(

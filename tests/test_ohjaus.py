@@ -19,7 +19,11 @@ from portti.ohjaus import (
 )
 
 HEAD = "abc123abc123"
-AGENTTI = (LABEL_AGENTTI,)
+HAARA = "feature/kortti-x"
+AGENTTI = (LABEL_AGENTTI, "malli-opus")
+YKSI_KIERROS = (*AGENTTI, "korjauskierros-1")
+KAKSI_KIERROSTA = (*YKSI_KIERROS, "korjauskierros-2")
+LIIAN_ISO = "LIIAN-ISO"
 
 
 def evidence(verdict: str = "VAPAA", tier: str = "T1a", head: str = HEAD,
@@ -35,7 +39,7 @@ def edellinen(toimenpide: str = "korjauskierros", kierros: Any = 1, head: str = 
 def syote(**muutokset: Any) -> OhjausSyote:
     perus: dict[str, Any] = {
         "pr_head_sha": HEAD, "testit": "success", "evidence": evidence(),
-        "muuttuneet_polut": ("palvelin/sovellus/laskenta/ydin.py",), "labelit": (),
+        "muuttuneet_polut": ("palvelin/sovellus/laskenta/ydin.py",), "labelit": (), "haara": HAARA,
     }
     perus.update(muutokset)
     return OhjausSyote(**perus)
@@ -73,9 +77,9 @@ def test_rivi_c_agentin_testit_failure_korjauskierrokset_ja_jumissa() -> None:
     ensimmainen = paata(syote(testit="failure", labelit=AGENTTI))
     assert ensimmainen.toimenpide == KORJAUSKIERROS and ensimmainen.kierros == 1 and ensimmainen.kaynnista is True
     assert ensimmainen.labelit == ("korjauskierros-1",) and ensimmainen.katselmoijan_rooli is None
-    toinen = paata(syote(testit="failure", labelit=(LABEL_AGENTTI, "korjauskierros-1")))
+    toinen = paata(syote(testit="failure", labelit=YKSI_KIERROS))
     assert toinen.toimenpide == KORJAUSKIERROS and toinen.kierros == 2 and toinen.labelit == ("korjauskierros-2",)
-    kolmas = paata(syote(testit="failure", labelit=(LABEL_AGENTTI, "korjauskierros-1", "korjauskierros-2")))
+    kolmas = paata(syote(testit="failure", labelit=KAKSI_KIERROSTA))
     assert kolmas.toimenpide == CTO and set(kolmas.labelit) == {"katselmoitavaksi", "jumissa"}
     assert "korjauskierroksia käytetty 2" in kolmas.perustelu
 
@@ -94,18 +98,20 @@ def test_rivi_c_ihmisen_pr_korjattava_ilman_katselmoijaa() -> None:
     assert paatos.katselmoijan_rooli is None and paatos.kierros is None
 
 
-def test_rivi_c_forkin_pr_ei_kaynnista_korjauskierrosta() -> None:
-    paatos = paata(syote(testit="failure", labelit=AGENTTI, forkki=True))
-    assert paatos.toimenpide == CTO and set(paatos.labelit) == {"katselmoitavaksi", "jumissa"}
-    assert "forkin PR" in paatos.perustelu
+def test_forkin_pr_ei_kaynnista_korjauskierrosta() -> None:
+    testit = paata(syote(testit="failure", labelit=AGENTTI, forkki=True))
+    assert testit.toimenpide == CTO and set(testit.labelit) == {"katselmoitavaksi", "jumissa"}
+    assert "forkin PR" in testit.perustelu
+    koko = paata(syote(evidence=evidence(LIIAN_ISO, "YLI"), labelit=AGENTTI, forkki=True))
+    assert koko.toimenpide == CTO and set(koko.labelit) == {"katselmoitavaksi", "liian-iso"}
 
 
 def test_rivi_d_liian_iso() -> None:
-    iso = evidence("LIIAN-ISO", "YLI")
+    iso = evidence(LIIAN_ISO, "YLI")
     agentin = paata(syote(evidence=iso, labelit=AGENTTI))
-    assert agentin.toimenpide == KORJAUSKIERROS and agentin.kierros == 1
+    assert agentin.toimenpide == KORJAUSKIERROS and agentin.kierros == 1 and agentin.kaynnista is True
     assert agentin.ohje == "pienennä muutos kortin rajaukseen"
-    toinen = paata(syote(evidence=iso, labelit=(LABEL_AGENTTI, "korjauskierros-1")))
+    toinen = paata(syote(evidence=iso, labelit=YKSI_KIERROS))
     assert toinen.toimenpide == CTO and set(toinen.labelit) == {"katselmoitavaksi", "liian-iso"}
     ihmisen = paata(syote(evidence=iso))
     assert ihmisen.toimenpide == CTO and set(ihmisen.labelit) == {"katselmoitavaksi", "liian-iso"}
@@ -124,7 +130,7 @@ def test_rivi_e_katselmoitavaksi_rooli_tierin_mukaan(verdict: str, tier: str, ro
 def test_rivit_tarkistetaan_jarjestyksessa() -> None:
     kova_ja_failure = paata(syote(evidence=evidence("KOVA"), testit="failure", labelit=AGENTTI))
     assert kova_ja_failure.toimenpide == CTO and "KOVA" in kova_ja_failure.perustelu
-    iso_ja_failure = paata(syote(evidence=evidence("LIIAN-ISO", "YLI"), testit="failure", labelit=AGENTTI))
+    iso_ja_failure = paata(syote(evidence=evidence(LIIAN_ISO, "YLI"), testit="failure", labelit=AGENTTI))
     assert iso_ja_failure.toimenpide == KORJAUSKIERROS and iso_ja_failure.perustelu == "testit epäonnistuivat"
 
 
@@ -135,11 +141,76 @@ def test_tuntematon_tila_vie_ctolle() -> None:
     assert keskeytetty.toimenpide == CTO and "testien tila puuttuu" in keskeytetty.perustelu
 
 
+def test_tuntematon_tier_vie_ctolle_eika_paady_labeliin() -> None:
+    paatos = paata(syote(evidence=evidence("VAPAA", "T9, kova")))
+    assert paatos.toimenpide == CTO and set(paatos.labelit) == {"katselmoitavaksi", "kova"}
+    assert "tuntematon tier" in paatos.perustelu
+
+
 def test_ihmiselle_vieva_toimenpide_asettaa_katselmoitavaksi() -> None:
     assert "katselmoitavaksi" in paata(syote()).labelit
     assert "katselmoitavaksi" in paata(syote(evidence=evidence("KOVA"))).labelit
     assert "katselmoitavaksi" not in paata(syote(testit="failure", labelit=AGENTTI)).labelit
     assert "katselmoitavaksi" not in paata(syote(testit="failure")).labelit
+
+
+@pytest.mark.parametrize(
+    "muutos, syy",
+    [
+        ({"labelit": (LABEL_AGENTTI,)}, "alkuperäisen ajon malli ei ole tiedossa"),
+        ({"labelit": (*AGENTTI, "malli-fable")}, "alkuperäisen ajon malli ei ole tiedossa"),
+        ({"labelit": (LABEL_AGENTTI, "malli-sonnet")}, "alkuperäisen ajon malli ei ole tiedossa"),
+        ({"labelit": AGENTTI, "haara": "kortti-x"}, "haara ei ole muotoa feature/<slug>"),
+        ({"labelit": AGENTTI, "haara": None}, "haara ei ole muotoa feature/<slug>"),
+        ({"labelit": AGENTTI, "haara": "feature/Iso Slug"}, "haara ei ole muotoa feature/<slug>"),
+    ],
+)
+def test_uusi_korjauskierros_vaatii_kortin_slugin_ja_alkuperaisen_mallin(muutos: dict[str, Any], syy: str) -> None:
+    testit = paata(syote(testit="failure", **muutos))
+    assert testit.toimenpide == CTO and set(testit.labelit) == {"katselmoitavaksi", "jumissa"}
+    assert "korjauskierrosta ei voi käynnistää" in testit.perustelu and syy in testit.perustelu
+    koko = paata(syote(evidence=evidence(LIIAN_ISO, "YLI"), **muutos))
+    assert koko.toimenpide == CTO and set(koko.labelit) == {"katselmoitavaksi", "liian-iso"}
+
+
+def test_fable_ajon_korjauskierros_kayttaa_fablea() -> None:
+    tila = syote(testit="failure", labelit=(LABEL_AGENTTI, "malli-fable"))
+    paatos = paatos_sanakirjaksi(tila, paata(tila))
+    assert paatos["toimenpide"] == KORJAUSKIERROS and paatos["alkuperainen_malli"] == "fable"
+    assert paatos["kortti"] == "kortti-x" and paatos["kaynnista_kortti_ajo"] is True
+
+
+def test_kaynnistetty_kierros_ei_kaynnisty_uudelleen_samalle_headille() -> None:
+    """Testit ja Portti valmistuvat erikseen: toinen ohjausajo näkee jo labelin korjauskierros-1."""
+    toinen = paata(syote(testit="failure", labelit=YKSI_KIERROS, edellinen=edellinen()))
+    assert toinen.toimenpide == KORJAUSKIERROS and toinen.kierros == 1 and toinen.kaynnista is False
+    assert toinen.labelit == ("korjauskierros-1",) and "on jo käynnistetty tälle headille" in toinen.perustelu
+    liian_iso = paata(syote(evidence=evidence(LIIAN_ISO, "YLI"), labelit=YKSI_KIERROS, edellinen=edellinen()))
+    assert liian_iso.toimenpide == KORJAUSKIERROS and liian_iso.kaynnista is False, "ei CTO:lle kesken pienennyksen"
+    ilman_tietoja = paata(syote(testit="failure", labelit=(LABEL_AGENTTI, "korjauskierros-1"), haara=None, edellinen=edellinen()))
+    assert ilman_tietoja.toimenpide == KORJAUSKIERROS and ilman_tietoja.kaynnista is False
+
+
+def test_viimeinen_kierros_kaynnissa_ei_vie_ctolle_kesken_korjauksen() -> None:
+    kesken = paata(syote(testit="failure", labelit=KAKSI_KIERROSTA, edellinen=edellinen(kierros=2)))
+    assert kesken.toimenpide == KORJAUSKIERROS and kesken.kierros == 2 and kesken.kaynnista is False
+    uusi_head = paata(syote(testit="failure", labelit=KAKSI_KIERROSTA, edellinen=edellinen(kierros=2, head="vanha")))
+    assert uusi_head.toimenpide == CTO and "jumissa" in uusi_head.labelit
+
+
+def test_edellinen_paatos_toiselta_headilta_tai_muu_toimenpide_ei_esta_uutta_kierrosta() -> None:
+    vanha_head = paata(syote(testit="failure", labelit=YKSI_KIERROS, edellinen=edellinen(head="vanha")))
+    assert vanha_head.toimenpide == KORJAUSKIERROS and vanha_head.kierros == 2 and vanha_head.kaynnista is True
+    muu_toimenpide = paata(syote(testit="failure", labelit=YKSI_KIERROS, edellinen=edellinen("katselmoitavaksi", None)))
+    assert muu_toimenpide.kierros == 2 and muu_toimenpide.kaynnista is True
+    ihmisen = paata(syote(testit="failure", edellinen=edellinen()))
+    assert ihmisen.toimenpide == KORJATTAVA, "edellinen päätös ei tee ihmisen PR:stä agentin PR:ää"
+
+
+@pytest.mark.parametrize("kierros", ["1", None, True, 0])
+def test_kelvoton_kierros_edellisessa_paatoksessa_ei_kaynnista_uutta_ajoa(kierros: Any) -> None:
+    paatos = paata(syote(testit="failure", labelit=YKSI_KIERROS, edellinen=edellinen(kierros=kierros)))
+    assert paatos.toimenpide == KORJAUSKIERROS and paatos.kaynnista is False and paatos.kierros == 1
 
 
 def test_kierroksia_labeleista() -> None:
@@ -148,55 +219,16 @@ def test_kierroksia_labeleista() -> None:
 
 
 def test_paatos_json_poistaa_vain_hallitut_labelit_ja_on_deterministinen() -> None:
-    labelit = ("agentti", "korjauskierros-1", "kova", "katselmoitavaksi", "tier-T1a", "muu")
+    labelit = (*YKSI_KIERROS, "kova", "katselmoitavaksi", "tier-T1a", "muu")
     tila = syote(evidence=evidence(tier="T0"), labelit=labelit)
     paatos = paatos_sanakirjaksi(tila, paata(tila))
     assert paatos["lisaa_labelit"] == ["katselmoitavaksi", "tier-T0"]
-    assert paatos["poista_labelit"] == ["kova", "tier-T1a"], "agentti, korjauskierros-n ja vieraat labelit jäävät"
+    assert paatos["poista_labelit"] == ["kova", "tier-T1a"], "agentti, malli-, korjauskierros- ja vieraat labelit jäävät"
     assert paatos["agentti"] is True and paatos["head_sha"] == HEAD and paatos["kierros"] is None
-    assert paatos["kaynnista_kortti_ajo"] is False
+    assert paatos["kaynnista_kortti_ajo"] is False and paatos["kortti"] is None and paatos["alkuperainen_malli"] is None
     kaatunut = syote(testit="failure", labelit=AGENTTI)
-    assert paatos_sanakirjaksi(kaatunut, paata(kaatunut))["kaynnista_kortti_ajo"] is True
+    korjaus = paatos_sanakirjaksi(kaatunut, paata(kaatunut))
+    assert korjaus["kaynnista_kortti_ajo"] is True and korjaus["kortti"] == "kortti-x" and korjaus["alkuperainen_malli"] == "opus"
     teksti = paatos_tekstiksi(paatos)
     assert teksti == paatos_tekstiksi(paatos_sanakirjaksi(tila, paata(tila)))
     assert list(json.loads(teksti)) == sorted(json.loads(teksti))
-
-
-def test_kaynnistetty_kierros_ei_kaynnisty_uudelleen_samalle_headille() -> None:
-    """Testit ja Portti valmistuvat erikseen: toinen ohjausajo näkee jo labelin korjauskierros-1."""
-    labelit = (LABEL_AGENTTI, "korjauskierros-1")
-    toinen = paata(syote(testit="failure", labelit=labelit, edellinen=edellinen()))
-    assert toinen.toimenpide == KORJAUSKIERROS and toinen.kierros == 1 and toinen.kaynnista is False
-    assert toinen.labelit == ("korjauskierros-1",) and "on jo käynnistetty tälle headille" in toinen.perustelu
-    liian_iso = paata(syote(evidence=evidence("LIIAN-ISO", "YLI"), labelit=labelit, edellinen=edellinen()))
-    assert liian_iso.toimenpide == KORJAUSKIERROS and liian_iso.kaynnista is False, "ei CTO:lle kesken pienennyksen"
-
-
-def test_viimeinen_kierros_kaynnissa_ei_vie_ctolle_kesken_korjauksen() -> None:
-    labelit = (LABEL_AGENTTI, "korjauskierros-1", "korjauskierros-2")
-    kesken = paata(syote(testit="failure", labelit=labelit, edellinen=edellinen(kierros=2)))
-    assert kesken.toimenpide == KORJAUSKIERROS and kesken.kierros == 2 and kesken.kaynnista is False
-    uusi_head = paata(syote(testit="failure", labelit=labelit, edellinen=edellinen(kierros=2, head="vanha")))
-    assert uusi_head.toimenpide == CTO and "jumissa" in uusi_head.labelit
-
-
-def test_edellinen_paatos_toiselta_headilta_tai_muu_toimenpide_ei_esta_uutta_kierrosta() -> None:
-    labelit = (LABEL_AGENTTI, "korjauskierros-1")
-    vanha_head = paata(syote(testit="failure", labelit=labelit, edellinen=edellinen(head="vanha")))
-    assert vanha_head.toimenpide == KORJAUSKIERROS and vanha_head.kierros == 2 and vanha_head.kaynnista is True
-    muu_toimenpide = paata(syote(testit="failure", labelit=labelit, edellinen=edellinen("katselmoitavaksi", None)))
-    assert muu_toimenpide.kierros == 2 and muu_toimenpide.kaynnista is True
-    ihmisen = paata(syote(testit="failure", edellinen=edellinen()))
-    assert ihmisen.toimenpide == KORJATTAVA, "edellinen päätös ei tee ihmisen PR:stä agentin PR:ää"
-
-
-@pytest.mark.parametrize("kierros", ["1", None, True, 0])
-def test_kelvoton_kierros_edellisessa_paatoksessa_ei_kaynnista_uutta_ajoa(kierros: Any) -> None:
-    paatos = paata(syote(testit="failure", labelit=(LABEL_AGENTTI, "korjauskierros-1"), edellinen=edellinen(kierros=kierros)))
-    assert paatos.toimenpide == KORJAUSKIERROS and paatos.kaynnista is False and paatos.kierros == 1
-
-
-def test_tuntematon_tier_vie_ctolle_eika_paady_labeliin() -> None:
-    paatos = paata(syote(evidence=evidence("VAPAA", "T9, kova")))
-    assert paatos.toimenpide == CTO and set(paatos.labelit) == {"katselmoitavaksi", "kova"}
-    assert "tuntematon tier" in paatos.perustelu

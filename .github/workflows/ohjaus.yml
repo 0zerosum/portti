@@ -10,7 +10,9 @@ name: Portti-ohjaus (uudelleenkäytettävä)
 # Fail-closed: puuttuva evidence, puuttuva testitulos tai eri head vie PR:n CTO:lle (portti ohjaa).
 # Jos toinen työnkulku on vielä kesken, ajo päättyy ilman toimenpiteitä; sen valmistuminen ajaa ohjauksen
 # uudelleen. Idempotentti: edellinen päätös luetaan ohjauskommentista ja annetaan moottorille, joten
-# tälle headille jo käynnistetty korjauskierros ei käynnisty uudelleen.
+# tälle headille jo käynnistetty korjauskierros ei käynnisty uudelleen. Korjauskierros käynnistetään
+# kuluttajan kortti-ajolle syötteillä kortti (haarasta feature/<slug>), korjaa_pr ja alkuperainen_malli
+# (labelista malli-<nimi>).
 
 on:
   workflow_call:
@@ -175,12 +177,13 @@ jobs:
           TESTIT: ${{ steps.tila.outputs.testit }}
           LABELIT: ${{ steps.pr.outputs.labelit }}
           FORKKI: ${{ steps.pr.outputs.forkki }}
+          HAARA: ${{ steps.pr.outputs.haara }}
         run: |
           liput=()
           [ "$FORKKI" = "true" ] && liput+=(--forkki)
           python -m portti.cli ohjaa --head "$HEAD_SHA" --testit "$TESTIT" --evidence evidence/portti-evidence.json \
-            --polut polut.txt --labelit "$LABELIT" --edellinen portti-edellinen.json --paatos portti-paatos.json \
-            "${liput[@]}"
+            --polut polut.txt --labelit "$LABELIT" --haara "$HAARA" --edellinen portti-edellinen.json \
+            --paatos portti-paatos.json "${liput[@]}"
           cat portti-paatos.json
 
       - name: Tallenna päätös artefaktiksi
@@ -200,9 +203,9 @@ jobs:
           KATSELMOIJA_CTO: ${{ vars.PORTTI_KATSELMOIJA_CTO }}
           KATSELMOIJA_T1: ${{ vars.PORTTI_KATSELMOIJA_T1 }}
           KORTTI_AJO: ${{ inputs.kortti_ajo_tyonkulku }}
-          KORTTI: ${{ steps.pr.outputs.haara }}
           OLETUSHAARA: ${{ github.event.repository.default_branch }}
         run: |
+          # Kortin slug ja alkuperäisen ajon malli tulevat päätöksestä (PR:n haara ja label malli-<nimi>).
           python -m portti.cli ohjaus-toteuta --paatos portti-paatos.json --repo "$REPO" --pr "$PR" \
             --katselmoija-cto "$KATSELMOIJA_CTO" --katselmoija-t1 "$KATSELMOIJA_T1" \
-            --kortti-ajo "$KORTTI_AJO" --kortti "$KORTTI" --oletushaara "$OLETUSHAARA"
+            --kortti-ajo "$KORTTI_AJO" --oletushaara "$OLETUSHAARA"

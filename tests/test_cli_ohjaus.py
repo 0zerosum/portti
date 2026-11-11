@@ -70,7 +70,7 @@ def test_ohjaa_forkki_ja_testit_failure(tmp_path: Path, capsys: pytest.CaptureFi
     evidence, head = evidence_tiedosto(tmp_path, "repo")
     polut = polut_tiedosto(tmp_path, POLKU)
     perus = ["ohjaa", "--head", head, "--testit", "failure", "--evidence", str(evidence), "--polut", str(polut),
-             "--labelit", "agentti"]
+             "--labelit", "agentti,malli-opus", "--haara", "feature/kortti-x"]
     assert main(perus) == 0
     assert json.loads(capsys.readouterr().out)["toimenpide"] == "korjauskierros"
     assert main([*perus, "--forkki"]) == 0
@@ -82,7 +82,8 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
     paatos = {
         "paatos_muoto": 1, "moottorin_versio": "0.4.0", "head_sha": "abc123abc123", "toimenpide": "korjauskierros",
         "lisaa_labelit": ["korjauskierros-1"], "poista_labelit": ["katselmoitavaksi"], "katselmoijan_rooli": None,
-        "kierros": 1, "kaynnista_kortti_ajo": True, "ohje": "pienennä", "perustelu": "testit epäonnistuivat",
+        "kierros": 1, "kaynnista_kortti_ajo": True, "kortti": "kortti-x", "alkuperainen_malli": "fable",
+        "ohje": "pienennä", "perustelu": "testit epäonnistuivat",
         "agentti": True, "forkki": False,
         "testit": "failure",
     }
@@ -90,11 +91,12 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
     kohde.write_text(json.dumps(paatos), encoding="utf-8")
     vale = ValeGh({"label list": [], "issues/7/comments": [[]], "pr view": {"author": {"login": "keksitty-tekija"}}})
     koodi = main(["ohjaus-toteuta", "--paatos", str(kohde), "--repo", "omistaja/keksitty", "--pr", "7",
-                  "--katselmoija-cto", "keksitty-cto", "--kortti-ajo", "kortti-ajo.yml", "--kortti", "kortti-x",
+                  "--katselmoija-cto", "keksitty-cto", "--kortti-ajo", "kortti-ajo.yml",
                   "--oletushaara", "paahaara"], api=vale.api())
     assert koodi == 0
     assert ["workflow", "run", "kortti-ajo.yml", "--repo", "omistaja/keksitty", "--ref", "paahaara",
-            "-f", "korjaa_pr=7", "-f", "kortti=kortti-x"] in [argumentit for argumentit, _ in vale.kutsut]
+            "-f", "alkuperainen_malli=fable", "-f", "korjaa_pr=7", "-f", "kortti=kortti-x"] in [
+        argumentit for argumentit, _ in vale.kutsut]
     virhetuloste = capsys.readouterr().err
     assert "luotu labelit korjauskierros-1" in virhetuloste and "kortti-ajo käynnistetty" in virhetuloste
     kelvoton = tmp_path / "kelvoton.json"
@@ -106,8 +108,9 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
 def test_ohjaus_edellinen_estaa_saman_kierroksen_kaynnistamisen_kahdesti(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     evidence, head = evidence_tiedosto(tmp_path, "repo")
     polut = polut_tiedosto(tmp_path, POLKU)
-    ohjaa = ["ohjaa", "--head", head, "--testit", "failure", "--evidence", str(evidence), "--polut", str(polut)]
-    assert main([*ohjaa, "--labelit", "agentti"]) == 0
+    ohjaa = ["ohjaa", "--head", head, "--testit", "failure", "--evidence", str(evidence), "--polut", str(polut),
+             "--haara", "feature/kortti-x"]
+    assert main([*ohjaa, "--labelit", "agentti,malli-opus"]) == 0
     eka = json.loads(capsys.readouterr().out)
     assert eka["kierros"] == 1 and eka["kaynnista_kortti_ajo"] is True
     kommentit = [{"id": 1, "body": "ihmisen kommentti"}, {"id": 2, "body": renderoi_ohjaus(eka, None, [])}]
@@ -118,7 +121,7 @@ def test_ohjaus_edellinen_estaa_saman_kierroksen_kaynnistamisen_kahdesti(tmp_pat
     assert json.loads(edellinen.read_text(encoding="utf-8")) == {
         "head_sha": head, "toimenpide": "korjauskierros", "kierros": 1, "moottorin_versio": eka["moottorin_versio"],
     }
-    assert main([*ohjaa, "--labelit", "agentti,korjauskierros-1", "--edellinen", str(edellinen)]) == 0
+    assert main([*ohjaa, "--labelit", "agentti,malli-opus,korjauskierros-1", "--edellinen", str(edellinen)]) == 0
     toka = json.loads(capsys.readouterr().out)
     assert toka["kierros"] == 1 and toka["kaynnista_kortti_ajo"] is False and toka["lisaa_labelit"] == ["korjauskierros-1"]
 
@@ -130,7 +133,8 @@ def test_ohjaus_edellinen_ilman_kommenttia_ja_kelvoton_tiedosto(tmp_path: Path, 
     assert tuloste.out == "null\n" and "ei aiempaa päätöstä" in tuloste.err
     evidence, head = evidence_tiedosto(tmp_path, "repo")
     ohjaa = ["ohjaa", "--head", head, "--testit", "failure", "--evidence", str(evidence),
-             "--polut", str(polut_tiedosto(tmp_path, POLKU)), "--labelit", "agentti"]
+             "--polut", str(polut_tiedosto(tmp_path, POLKU)), "--labelit", "agentti,malli-opus",
+             "--haara", "feature/kortti-x"]
     ei_paatosta = tmp_path / "null.json"
     ei_paatosta.write_text("null\n", encoding="utf-8")
     assert main([*ohjaa, "--edellinen", str(ei_paatosta)]) == 0
