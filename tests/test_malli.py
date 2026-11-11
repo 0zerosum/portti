@@ -29,6 +29,25 @@ def kortti(*metarivit: str) -> str:
     return "# Keksitty kortti\n\n- Tila: hyväksytty\n" + "".join(f"{rivi}\n" for rivi in metarivit) + "\nKuvaus.\n"
 
 
+@pytest.mark.parametrize(
+    "rivi",
+    ["- **Malli:** sonnet", "1. Malli: sonnet", "+ Malli: haiku", "– Malli: sonnet", "- [ ] Malli: haiku",
+     "    - Malli: fable", "**Malli:** fable"],
+)
+def test_mallirivi_vaarassa_muodossa_estaa_ajon(rivi: str) -> None:
+    """Kielletty arvo ei ohitu muotoilun takia, eikä fable tule hyväksytyksi rivistä, joka ei ole mallirivi."""
+    with pytest.raises(MalliVirhe, match="ei ole muotoa '- Malli: <arvo>'"):
+        valitse_malli(kortti(rivi))
+    with pytest.raises(MalliVirhe):
+        valitse_malli(kortti(rivi), kasin="opus")
+
+
+@pytest.mark.parametrize("piilotettu", ["```\n- Malli: fable\n```", "<!-- - Malli: fable -->", "<!--\n- Malli: sonnet\n-->"])
+def test_koodilohkon_tai_kommentin_mallirivi_ei_valitse_mallia(piilotettu: str) -> None:
+    valinta = valitse_malli(kortti(piilotettu))
+    assert (valinta.nimi, valinta.lahde) == ("opus", LAHDE_OLETUS)
+
+
 def test_sallitut_mallit_ovat_vain_opus_ja_fable() -> None:
     assert SALLITUT_MALLIT == {"opus": OPUS_TUNNISTE, "fable": FABLE_TUNNISTE}
 

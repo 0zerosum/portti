@@ -1,4 +1,5 @@
-"""Kortin metarivien luku: tilarivi, kirjainkoko, sulkuhuomautus, kaksoisrivit ja kortin haaran slug."""
+"""Kortin metarivien luku: tilarivi, kirjainkoko, sulkuhuomautus, kaksoisrivit, koodilohkot ja kommentit,
+väärässä muodossa olevat rivit ja kortin haaran slug."""
 
 import pytest
 
@@ -12,7 +13,7 @@ def kortti(*rivit: str) -> str:
 @pytest.mark.parametrize(
     "rivi",
     ["- Tila: hyväksytty", "- tila: Hyväksytty", "-  Tila :  HYVÄKSYTTY  ", "* Tila: hyväksytty",
-     "- Tila: hyväksytty (CTO 6.11.2026)", "- Tila: `hyväksytty`", "- Tila: hyväksytty"],
+     "- Tila: hyväksytty (CTO 6.11.2026)", "- Tila: `hyväksytty`", "   - Tila: hyväksytty", "- Tila: hyväksytty"],
 )
 def test_hyvaksytty_tila_tunnistetaan(rivi: str) -> None:
     assert kortin_tila(kortti(rivi, "- Malli: opus")) == TILA_HYVAKSYTTY
@@ -38,6 +39,31 @@ def test_sama_avain_kahdesti_on_virhe() -> None:
     with pytest.raises(KorttiVirhe, match="2 riviä"):
         kortin_tila(kortti("- Tila: hyväksytty", "- Tila: luonnos"))
     assert lue_kentta(kortti("- Tila: hyväksytty", "- Tilanne: muu"), "Tila") == "hyväksytty"
+
+
+@pytest.mark.parametrize(
+    "piilotettu",
+    ["```\n- Tila: hyväksytty\n```", "```markdown\n- Tila: hyväksytty\n```", "~~~\n- Tila: hyväksytty\n~~~",
+     "<!-- - Tila: hyväksytty -->", "<!--\n- Tila: hyväksytty\n-->", "<!-- sulkematon kommentti\n- Tila: hyväksytty",
+     "```\nsulkematon koodilohko\n- Tila: hyväksytty"],
+)
+def test_koodilohkon_ja_kommentin_sisalto_ei_ole_metatietoa(piilotettu: str) -> None:
+    assert kortin_tila(kortti(piilotettu)) is None, "esimerkki tai kommentoitu rivi ei hyväksy korttia"
+    assert kortin_tila(kortti("- Tila: luonnos", piilotettu)) == "luonnos"
+    assert kortin_tila(kortti("- Tila: hyväksytty", piilotettu.replace("Tila: hyväksytty", "Malli: fable"))) == "hyväksytty"
+
+
+@pytest.mark.parametrize(
+    "rivi",
+    ["- **Tila:** hyväksytty", "- **Tila**: hyväksytty", "**Tila:** hyväksytty", "- *Tila*: hyväksytty", "- `Tila`: hyväksytty",
+     "1. Tila: hyväksytty", "2) Tila: hyväksytty", "+ Tila: hyväksytty", "– Tila: hyväksytty", "• Tila: hyväksytty",
+     "- [x] Tila: hyväksytty", "    - Tila: hyväksytty", "\t- Tila: hyväksytty"],
+)
+def test_metarivi_vaarassa_muodossa_on_virhe_eika_ohitu(rivi: str) -> None:
+    with pytest.raises(KorttiVirhe, match="ei ole muotoa '- Tila: <arvo>'"):
+        kortin_tila(kortti(rivi))
+    with pytest.raises(KorttiVirhe):
+        kortin_tila(kortti("- Tila: hyväksytty", rivi))
 
 
 def test_normalisoi() -> None:

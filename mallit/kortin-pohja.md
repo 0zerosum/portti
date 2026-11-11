@@ -8,6 +8,14 @@ kuin kielimallia kutsutaan. Lisää nämä rivit repon kortin pohjaan:
 - Malli: opus (oletus; fable vain hyväksytyllä päätöksellä)
 ```
 
+## Rivien muoto
+
+Tila- ja mallirivi ovat kortin ylätason luettelorivejä muodossa `- Avain: arvo` (myös `*` käy, sisennystä
+enintään kolme välilyöntiä). Moottori ei lue rivejä koodilohkojen eikä HTML-kommenttien sisältä. Jos sama avain
+on kortissa muussa muodossa, esimerkiksi `- **Malli:** fable`, `1. Tila: hyväksytty` tai sisennettynä alilistaan,
+ajo ei käynnisty: moottori ei arvaa, mitä rivillä tarkoitettiin. Rivi ilman luettelomerkkiä kesken tekstiä
+(`Malli: ...`) ei ole metarivi.
+
 ## Tila
 
 Kortti-ajo käynnistyy vain, kun rivi on `- Tila: hyväksytty` oletushaarassa. Sulkuhuomautus rivin lopussa on
