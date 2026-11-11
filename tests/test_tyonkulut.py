@@ -158,6 +158,7 @@ def test_jalkitarkistus_lukee_tilan_apista_ja_vie_tuloksettoman_kierroksen_ctoll
     assert "ANTHROPIC_API_KEY" not in teksti and "secrets." not in teksti, "jälkitarkistus ei saa API-avainta"
     assert not any("claude-code-action" in str(jalkiaskel.get("uses", "")) for jalkiaskel in jalki["steps"])
     assert jalki["env"]["AJON_TULOS"] == "${{ inputs.ajon_tulos }}" and jalki["env"]["LOPPUTULOS"] == "${{ inputs.lopputulos }}"
+    assert jalki["if"] == "always()", "kutsuvan jobin ehto ei yksin riitä, jos koko ajo perutaan"
     assert all(jalkiaskel.get("if", "").startswith("always()") for jalkiaskel in jalki["steps"]), \
         "jälkitarkistus ajetaan, vaikka agentin job epäonnistui tai peruttiin"
     haku = askel(jalki, "Etsi ajon PR")["run"]

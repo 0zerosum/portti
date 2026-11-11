@@ -60,6 +60,8 @@ on:
 jobs:
   jalkitarkistus:
     name: Jälkitarkistus (puhdas runner)
+    # Myös tällä jobilla on always(): kutsuvan jobin ehto ei yksin riitä, jos koko ajo perutaan.
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
