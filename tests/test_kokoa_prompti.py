@@ -35,8 +35,10 @@ def test_uuden_kortin_prompti(tmp_path: Path) -> None:
     assert "{{" not in teksti
     lista = tyokalut.read_text(encoding="utf-8").strip().split(",")
     assert "Bash(git push -u origin kortti-x)" in lista and "Bash(python -m pytest -q)" in lista
-    assert "mcp__github_ci" in lista and "Read" in lista
+    assert "Read" in lista and "Bash(gh run view:*)" in lista and "Bash(git rm:*)" in lista
+    assert "mcp__github_ci" not in lista, "CI-työkalupalvelin ei ole käytössä workflow_dispatch-ajossa"
     assert not any(tyokalu.startswith("Bash(git push:") for tyokalu in lista)
+    assert all(tyokalu.count("(") <= 1 for tyokalu in lista), "pilkku tai sulku komennossa rikkoisi listan"
     assert "Read(./.git/**)" in kielletyt.read_text(encoding="utf-8")
 
 
@@ -46,6 +48,7 @@ def test_korjauskierroksen_prompti(tmp_path: Path) -> None:
     teksti = prompti.read_text(encoding="utf-8")
     assert "Korjauskierros PR:lle #7" in teksti and "Rakenna kortti" not in teksti
     assert "gh pr view 7 --comments" in teksti and "git push origin kortti-x" in teksti
+    assert "gh run list --branch kortti-x" in teksti and "gh pr comment 7" in teksti
 
 
 def test_kelvoton_syote_kaataa(tmp_path: Path) -> None:
@@ -53,5 +56,7 @@ def test_kelvoton_syote_kaataa(tmp_path: Path) -> None:
     assert aja(tmp_path, **{"--korjaa-pr": "seitsemän"})[0] == 2
     koodi, virhe, _, _, _ = aja(tmp_path, **{"--testikomennot": 'echo "x"'})
     assert koodi == 2 and "lainaus" in virhe
+    for komento in ("pytest -k a,b", "pytest -k (a)", "pytest > loki.txt", "pytest $VALINNAT", "pytest \\"):
+        assert aja(tmp_path, **{"--testikomennot": komento})[0] == 2, komento
     assert aja(tmp_path, **{"--testikomennot": "  \n"})[0] == 2
     assert aja(tmp_path, **{"--saannot": str(tmp_path / "ei-ole.md")})[0] == 2

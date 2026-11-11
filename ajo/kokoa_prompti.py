@@ -2,7 +2,8 @@
 
 Erillinen komponentti, ei osa portti-pakettia: ajetaan `python -I` kuluttajan ajossa. Vain vakiokirjasto.
 Sallitut työkalut rajataan tiedostojen käsittelyyn, oman haaran git- ja gh-operaatioihin sekä repon
-testikomentoihin sanatarkasti. Kielletyt estävät salaisuuksien lukemisen ja tulostamisen (parhaan kyvyn mukaan).
+asennus- ja testikomentoihin sanatarkasti. Kielletyt estävät salaisuuksien lukemisen ja tulostamisen
+(parhaan kyvyn mukaan).
 """
 
 from __future__ import annotations
@@ -13,11 +14,16 @@ import sys
 from pathlib import Path
 
 PERUSTYOKALUT = (
-    "Read", "Glob", "Grep", "Edit", "Write", "MultiEdit", "mcp__github_ci",
+    "Read", "Glob", "Grep", "Edit", "Write", "MultiEdit",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git rev-parse:*)",
-    "Bash(git add:*)", "Bash(git commit:*)", "Bash(git fetch origin:*)", "Bash(git switch:*)",
+    "Bash(git add:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(git commit:*)",
+    "Bash(git fetch origin:*)", "Bash(git switch:*)",
     "Bash(gh pr view:*)", "Bash(gh pr list:*)", "Bash(gh pr create:*)", "Bash(gh pr comment:*)",
+    "Bash(gh run list:*)", "Bash(gh run view:*)",
 )
+# Merkit, jotka rikkoisivat työkalulistan (pilkku erottaa työkalut, sulut rajaavat säännön) tai joita
+# actionin argumenttijäsennin tulkitsee (lainaukset, $, kenoviiva, ohjausmerkit).
+KIELLETYT_MERKIT = "\"'`$;|&,()<>\\"
 KIELLETYT = (
     "Read(./.git/**)", "Bash(env)", "Bash(env:*)", "Bash(printenv)", "Bash(printenv:*)", "Bash(set)",
     "Bash(cat .git/config)", "Bash(git config:*)", "Bash(git remote:*)",
@@ -36,8 +42,8 @@ def lue_testikomennot(teksti: str) -> list[str]:
     if not komennot:
         raise PromptiVirhe("testikomennot puuttuvat")
     for komento in komennot:
-        if any(merkki in komento for merkki in "\"'`$;|&"):
-            raise PromptiVirhe(f"testikomento ei saa sisältää lainaus- tai ohjausmerkkejä: {komento}")
+        if any(merkki in komento for merkki in KIELLETYT_MERKIT):
+            raise PromptiVirhe(f"testikomento ei saa sisältää lainaus-, ohjaus- eikä erotinmerkkejä: {komento}")
     return komennot
 
 

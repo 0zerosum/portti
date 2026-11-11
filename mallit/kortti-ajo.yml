@@ -38,8 +38,10 @@ jobs:
       korjaa_pr: ${{ inputs.korjaa_pr }}
       max_turns: ${{ inputs.max_turns }}
       malli: claude-opus-5-5
-      # Repon omat testikomennot sanatarkasti; vain nämä sallitaan agentille. Keksitty esimerkki.
+      # Repon omat asennus- ja testikomennot sanatarkasti, asennus ensin; vain nämä sallitaan agentille.
+      # Ei lainaus-, ohjaus- eikä erotinmerkkejä. Keksitty esimerkki.
       testikomennot: |
+        python -m pip install -r requirements-dev.txt
         python -m pytest -q
         python -m mypy --strict sovellus
       saantolohko_polku: .portti/saannot.md

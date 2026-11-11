@@ -2,6 +2,8 @@
 # Ajetaan oletushaaran työnkulkuna (workflow_run), joten PR ei voi muuttaa sitä eikä sen pinnausta.
 # Käynnistyy, kun Testit tai Portti valmistuu; ohjaus odottaa, kunnes molemmat ovat valmiit samalle headille.
 # Katselmoijat tulevat repon muuttujista PORTTI_KATSELMOIJA_CTO ja PORTTI_KATSELMOIJA_T1.
+# Älä lisää tähän concurrency-ryhmää: ohjaus.yml sarjoittaa ajot itse head-haaraa kohden, ja sama ryhmä
+# kutsujassa ja kutsutussa jobissa lukkiutuisi.
 name: Portti-ohjaus
 
 on:
@@ -14,10 +16,6 @@ permissions:
   pull-requests: write
   issues: write
   actions: write # vain workflow_dispatch kortti-ajolle korjauskierroksessa
-
-concurrency:
-  group: portti-ohjaus-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: false
 
 jobs:
   ohjaus:
