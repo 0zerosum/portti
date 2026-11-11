@@ -33,3 +33,7 @@ tapaukset:
     head: 89dd520f6c7e7d6b5982e863cf5be1db5e9d9169
     odotettu_verdict: KOVA
     odotettu_tier: YLI
+  - nimi: portti/malli.py:n muutos on KOVA (mallipaatos)
+    base: ba52e81458a28f27389605bd11208fcec7937bb0
+    head: 4cfdc66af962a2c98f7a5f48a4b18cad118c58c8
+    odotettu_verdict: KOVA
