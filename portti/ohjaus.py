@@ -6,7 +6,8 @@ Korjauskierrosten määrä luetaan PR:n labeleista `korjauskierros-<n>`, jotka o
 niitä koskaan poisteta. Agentin PR tunnistetaan labelista `agentti`. Edellinen päätös (ohjauskommentin
 konedata) kertoo, onko tälle headille jo käynnistetty kierros: sama tila ei käynnistä toista. Jos konedataa
 ei voitu lukea, korjauskierrosta ei käynnistetä vaan PR menee CTO:lle. Jos kortti-ajo on keskeytynyt tälle
-headille ja PR on viety CTO:lle, uutta kierrosta ei käynnistetä ennen uutta headia (`kierrokset_pysaytetty`).
+headille ja PR on viety CTO:lle (`kierrokset_pysaytetty`), tai edellisen kierroksen käynnistys jäi kesken eikä
+sen lopputulosta tiedetä (`kaynnistys_kesken`), uutta kierrosta ei käynnistetä ennen uutta headia.
 Uusi korjauskierros vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkuperäisen ajon mallin
 (label `malli-<nimi>`); jos jompikumpi puuttuu, PR menee CTO:lle.
 """
@@ -60,6 +61,7 @@ KIERROSNUMERO = re.compile(r"[0-9]{1,6}")
 PAATOS_MUOTO = 1
 EDELLINEN_KELVOTON = "kelvoton"
 KIERROKSET_PYSAYTETTY = "kierrokset_pysaytetty"
+KAYNNISTYS_KESKEN = "kaynnistys_kesken"
 
 
 @dataclass(frozen=True)
@@ -107,6 +109,22 @@ class OhjausSyote:
         """Kortti-ajo on jo keskeytynyt tälle headille ja PR on viety CTO:lle: uutta kierrosta ei käynnistetä."""
         edellinen = self.edellinen or {}
         return edellinen.get("head_sha") == self.pr_head_sha and edellinen.get(KIERROKSET_PYSAYTETTY) is True
+
+    @property
+    def pysaytyksen_syy(self) -> str | None:
+        """Syy, miksi tälle headille ei käynnistetä uutta korjauskierrosta, tai None.
+
+        Kortti-ajo on jo keskeytynyt tälle headille, tai edellisen kierroksen käynnistys jäi kesken eikä sen
+        lopputulosta tiedetä. Kummassakin tapauksessa PR on ihmisellä, kunnes haaraan tulee uusi head.
+        """
+        edellinen = self.edellinen or {}
+        if edellinen.get("head_sha") != self.pr_head_sha:
+            return None
+        if edellinen.get(KIERROKSET_PYSAYTETTY) is True:
+            return "kortti-ajo on jo keskeytynyt tälle headille, uutta korjauskierrosta ei käynnistetä"
+        if edellinen.get(KAYNNISTYS_KESKEN) is True:
+            return "edellisen korjauskierroksen käynnistys jäi kesken tälle headille, uutta ajoa ei käynnistetä"
+        return None
 
     @property
     def kaynnistetty_kierros(self) -> int | None:
@@ -205,9 +223,9 @@ def _korjauskierros_tai_cto(syote: OhjausSyote, raja: int, cto_label: str, perus
         return _cto(cto_label, f"{perustelu}; forkin PR ei käynnistä korjauskierrosta")
     if syote.edellinen_kelvoton:
         return _cto(cto_label, f"{perustelu}; edellistä ohjauspäätöstä ei voitu lukea, korjauskierrosta ei käynnistetä")
-    if syote.kierrokset_pysaytetty:
-        selite = f"{perustelu}; kortti-ajo on jo keskeytynyt tälle headille, uutta korjauskierrosta ei käynnistetä"
-        return Paatos(CTO, (LABEL_KATSELMOITAVAKSI, LABEL_JUMISSA), ROOLI_CTO, selite, pysaytetty=True)
+    pysaytys = syote.pysaytyksen_syy
+    if pysaytys is not None:
+        return Paatos(CTO, (LABEL_KATSELMOITAVAKSI, LABEL_JUMISSA), ROOLI_CTO, f"{perustelu}; {pysaytys}", pysaytetty=True)
     kaynnistetty = syote.kaynnistetty_kierros
     if kaynnistetty is not None:
         selite = f"{perustelu}; korjauskierros {kaynnistetty} on jo käynnistetty tälle headille"

@@ -2,6 +2,7 @@
 ja virhepolut (käynnistys tai katselmoijapyyntö epäonnistuu)."""
 
 import json
+import subprocess
 from typing import Any
 
 import pytest
@@ -185,8 +186,22 @@ def test_korjauskierros_kaynnistaa_kortti_ajon() -> None:
     komennot = [" ".join(argumentit[:3]) for argumentit, _ in vale_gh.kutsut]
     assert komennot.index("api -X POST") < komennot.index("workflow run kortti-ajo.yml"), \
         "ohjauskommentti kirjoitetaan ennen käynnistystä: kortti-ajo liittää sen promptiin"
+    rungot = [str(json.loads(syote)["body"]) for argumentit, syote in vale_gh.kutsut if syote and "POST" in argumentit]
+    ennen, jalkeen = lue_ohjauksen_konedata(rungot[0]), lue_ohjauksen_konedata(rungot[-1])
+    assert ennen is not None and ennen["kaynnistys_kesken"] is True, "ennen käynnistystä kierros ei ole vahvistettu"
+    assert jalkeen is not None and "kaynnistys_kesken" not in jalkeen, "onnistunut käynnistys vahvistetaan"
+    assert ohjaa((*AGENTTI, "korjauskierros-1"), ennen)["toimenpide"] == "cto", "vahvistamaton käynnistys ei jää tilaan korjauskierros"
+    assert ohjaa((*AGENTTI, "korjauskierros-1"), jalkeen)["kaynnista_kortti_ajo"] is False
     assert "Ohje agentille: pienennä" in luotu_kommentti(vale_gh)
     assert kutsu(vale_gh, "--add-reviewer") is None, "korjauskierroksessa ei pyydetä katselmoijaa"
+
+
+def test_kommentin_kirjoitus_ennen_kaynnistysta_epaonnistuu_ei_kaynnisteta() -> None:
+    vale_gh = vale(virheet={"api -X POST": "HTTP 500: kommentti"})
+    with pytest.raises(subprocess.CalledProcessError):
+        toteuta(vale_gh.api(), REPO, 7, korjauspaatos(kaynnista_kortti_ajo=True), Asetukset(EI_KATSELMOIJIA, AJO))
+    assert kutsu(vale_gh, "workflow", "run") is None, "ilman idempotenssin tietuetta maksullista ajoa ei käynnistetä"
+    assert kutsu(vale_gh, "--add-label", "jumissa,katselmoitavaksi") is not None, "PR viedään silti CTO:lle"
 
 
 def test_jo_kaynnistettu_kierros_ei_kaynnista_kortti_ajoa() -> None:

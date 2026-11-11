@@ -11,7 +11,15 @@ import json
 from typing import Any
 
 from portti.kommentti import TYONKULUN_KOMMENTOIJA
-from portti.ohjaus import CTO, EDELLINEN_KELVOTON, KATSELMOITAVAKSI, KIERROKSET_PYSAYTETTY, KORJATTAVA, KORJAUSKIERROS
+from portti.ohjaus import (
+    CTO,
+    EDELLINEN_KELVOTON,
+    KATSELMOITAVAKSI,
+    KAYNNISTYS_KESKEN,
+    KIERROKSET_PYSAYTETTY,
+    KORJATTAVA,
+    KORJAUSKIERROS,
+)
 
 TUNNISTE = "<!-- portti-ohjaus v1 -->"
 KONEDATA_ALKU = "<!-- ohjaus "
@@ -28,7 +36,8 @@ OTSIKOT = {
 def konedata(paatos: dict[str, Any]) -> dict[str, Any]:
     """Toteutuksen idempotenssiin tarvittava tiivistelmä: sama head ja sama päätös ei käynnistä kierrosta uudelleen.
 
-    Merkintä `kierrokset_pysaytetty` on mukana vain, kun kortti-ajo on keskeytynyt tälle headille.
+    Merkintä `kierrokset_pysaytetty` on mukana vain, kun kortti-ajo on keskeytynyt tälle headille, ja
+    `kaynnistys_kesken` vain kommentissa, joka kirjoitetaan ennen kortti-ajon käynnistystä.
     """
     tiivistelma = {
         "head_sha": paatos["head_sha"],
@@ -36,8 +45,9 @@ def konedata(paatos: dict[str, Any]) -> dict[str, Any]:
         "kierros": paatos.get("kierros"),
         "moottorin_versio": paatos["moottorin_versio"],
     }
-    if paatos.get(KIERROKSET_PYSAYTETTY):
-        tiivistelma[KIERROKSET_PYSAYTETTY] = True
+    for merkinta in (KIERROKSET_PYSAYTETTY, KAYNNISTYS_KESKEN):
+        if paatos.get(merkinta):
+            tiivistelma[merkinta] = True
     return tiivistelma
 
 

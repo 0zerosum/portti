@@ -247,6 +247,21 @@ def test_keskeytynyt_ajo_pysayttaa_korjauskierrokset_samalle_headille() -> None:
     assert paata(ilman_merkkia).kaynnista is True, "tavallinen CTO-päätös ei pysäytä kierroksia"
 
 
+def test_kesken_jaanyt_kaynnistys_ei_ole_kaynnissa_oleva_kierros() -> None:
+    """Kommentti kirjoitettiin ennen käynnistystä, mutta vahvistus puuttuu: ajoa ei oleteta käynnissä olevaksi."""
+    kesken = {**edellinen(), "kaynnistys_kesken": True}
+    tila = syote(testit="failure", labelit=YKSI_KIERROS, edellinen=kesken)
+    paatos = paata(tila)
+    assert paatos.toimenpide == CTO and set(paatos.labelit) == {"katselmoitavaksi", "jumissa"} and paatos.kaynnista is False
+    assert "käynnistys jäi kesken tälle headille" in paatos.perustelu
+    assert paatos_sanakirjaksi(tila, paatos)["kierrokset_pysaytetty"] is True
+    assert odottaa_korjauskierrosta(kesken, HEAD) is True, "tulokseton ajo viedään silti CTO:lle"
+    uusi_head = paata(syote(testit="failure", labelit=YKSI_KIERROS, edellinen={**kesken, "head_sha": "vanha"}))
+    assert uusi_head.toimenpide == KORJAUSKIERROS and uusi_head.kaynnista is True
+    vahvistettu = paata(syote(testit="failure", labelit=YKSI_KIERROS, edellinen=edellinen()))
+    assert vahvistettu.toimenpide == KORJAUSKIERROS and vahvistettu.kaynnista is False, "vahvistettu kierros jatkuu"
+
+
 def test_paatos_keskeytyneelle_ajolle_vie_ctolle_ja_pysayttaa_kierrokset() -> None:
     paatos = paatos_keskeytyneelle_ajolle(HEAD, (*YKSI_KIERROS, "korjattava"), "kortti-ajo ei tuottanut committia")
     assert paatos["toimenpide"] == CTO and paatos["lisaa_labelit"] == ["jumissa", "katselmoitavaksi"]

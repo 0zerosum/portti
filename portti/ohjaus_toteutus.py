@@ -6,7 +6,10 @@ Ohjauskommentiksi kelpaa vain ohjauksen oman kirjoittajan kommentti (`Asetukset.
 kommentteja ei lueta eikä päivitetä, vaikka niissä olisi ohjauksen tunniste.
 
 Uudessa korjauskierroksessa ohjauskommentti kirjoitetaan ennen kortti-ajon käynnistystä: kortti-ajo liittää
-kommentin agentin promptiin, ja idempotenssi nojaa siihen.
+kommentin agentin promptiin, ja idempotenssi nojaa siihen. Käynnistys on kaksivaiheinen: ennen käynnistystä
+kommentin konedatassa on `kaynnistys_kesken`, ja onnistuneen käynnistyksen jälkeen kommentti kirjoitetaan
+ilman sitä. Jos jälkimmäinen kirjoitus jää tekemättä, moottori ei oleta kierroksen olevan käynnissä vaan vie
+PR:n CTO:lle.
 
 Virhepolut ovat fail-closed. Jos kortti-ajoa ei saada käyntiin, PR viedään CTO:lle labelilla `jumissa`.
 Jos katselmoijapyyntö epäonnistuu, pyydetään seuraavaa ehdokasta ja virhe kirjataan kommenttiin. Varapäätöksen
@@ -23,6 +26,7 @@ from typing import Any
 from portti.github_api import GitHubApi
 from portti.kommentti import kirjoita_tai_paivita, kommentin_kirjoittaja
 from portti.ohjaus import (
+    KAYNNISTYS_KESKEN,
     KIERROS_ETULIITE,
     KORJAUSKIERROS,
     LABEL_AGENTTI,
@@ -198,8 +202,12 @@ def _kaynnista_korjaus(
         return _Kaynnistys(None, "päätöksestä puuttuu kortti tai alkuperäisen ajon malli")
     huomautus = f"kortti-ajon käynnistys: {korjausajo.tyonkulku}, kortti {kortti}, malli {malli}, kierros {kierros}"
     syotteet = {"kortti": str(kortti), "korjaa_pr": str(pr_numero), "alkuperainen_malli": str(malli)}
+    kesken = renderoi_ohjaus({**paatos, KAYNNISTYS_KESKEN: True}, None, [huomautus])
     try:
-        kirjoita_tai_paivita(api, repo, pr_numero, renderoi_ohjaus(paatos, None, [huomautus]), asetukset.kommentoija)
+        kirjoita_tai_paivita(api, repo, pr_numero, kesken, asetukset.kommentoija)
+    except subprocess.CalledProcessError as virhe:
+        return _Kaynnistys(None, f"ohjauskommentin kirjoitus ennen käynnistystä epäonnistui ({_gh_virhe(virhe)})")
+    try:
         api.kaynnista_tyonkulku(repo, korjausajo.tyonkulku, korjausajo.haara, syotteet)
     except subprocess.CalledProcessError as virhe:
         return _Kaynnistys(None, f"työnkulun {korjausajo.tyonkulku} käynnistys epäonnistui ({_gh_virhe(virhe)})")
