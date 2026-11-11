@@ -74,10 +74,12 @@ def kutsu(vale_gh: ValeGh, *osat: str) -> list[str] | None:
 
 
 def luotu_kommentti(vale_gh: ValeGh) -> str:
-    for argumentit, syote in vale_gh.kutsut:
-        if "POST" in argumentit and syote:
-            return str(json.loads(syote)["body"])
-    raise AssertionError("kommenttia ei luotu")
+    """Viimeisin kirjoitettu ohjauskommentti (luonti tai päivitys)."""
+    rungot = [str(json.loads(syote)["body"]) for argumentit, syote in vale_gh.kutsut
+              if syote and ("POST" in argumentit or "PATCH" in argumentit)]
+    if not rungot:
+        raise AssertionError("kommenttia ei kirjoitettu")
+    return rungot[-1]
 
 
 @pytest.mark.parametrize(
@@ -179,7 +181,10 @@ def test_korjauskierros_kaynnistaa_kortti_ajon() -> None:
     assert kutsu(vale_gh, "workflow", "run") == ["workflow", "run", "kortti-ajo.yml", "--repo", REPO, "--ref", "main",
                                                  "-f", "alkuperainen_malli=opus", "-f", "korjaa_pr=7",
                                                  "-f", "kortti=kortti-x"]
-    assert any("kortti-ajo käynnistetty" in toimi for toimi in tulos.toimet) and tulos.virheita is False
+    assert any("kortti-ajon käynnistys" in toimi for toimi in tulos.toimet) and tulos.virheita is False
+    komennot = [" ".join(argumentit[:3]) for argumentit, _ in vale_gh.kutsut]
+    assert komennot.index("api -X POST") < komennot.index("workflow run kortti-ajo.yml"), \
+        "ohjauskommentti kirjoitetaan ennen käynnistystä: kortti-ajo liittää sen promptiin"
     assert "Ohje agentille: pienennä" in luotu_kommentti(vale_gh)
     assert kutsu(vale_gh, "--add-reviewer") is None, "korjauskierroksessa ei pyydetä katselmoijaa"
 
@@ -214,7 +219,23 @@ def test_kaynnistyksen_virhe_vie_prn_ctolle_jumissa() -> None:
     assert kutsu(vale_gh, "--add-reviewer", "keksitty-cto") is not None
     runko = luotu_kommentti(vale_gh)
     assert "**CTO:lle**" in runko and "korjauskierrosta ei voitu käynnistää" in runko and "HTTP 404" in runko
-    assert lue_ohjauksen_konedata(runko) == {"head_sha": HEAD, "toimenpide": "cto", "kierros": None, "moottorin_versio": VERSIO}
+    assert lue_ohjauksen_konedata(runko) == {"head_sha": HEAD, "toimenpide": "cto", "kierros": None,
+                                             "moottorin_versio": VERSIO, "kierrokset_pysaytetty": True}
+    uusinta = ohjaa((*AGENTTI, "korjauskierros-1"), lue_ohjauksen_konedata(runko))
+    assert uusinta["toimenpide"] == "cto" and uusinta["kaynnista_kortti_ajo"] is False, \
+        "sama head ei käynnistä uutta maksullista kierrosta CTO:lle viennin jälkeen"
+    assert uusinta["lisaa_labelit"] == ["jumissa", "katselmoitavaksi"] and uusinta["kierrokset_pysaytetty"] is True
+
+
+def test_varapaatoksen_virheet_kirjataan_eivatka_esta_kommenttia() -> None:
+    """Käynnistys epäonnistui, ja sen jälkeen myös labelien päivitys ja PR:n tekijän haku: kommentti kirjoitetaan silti."""
+    vale_gh = vale(virheet={"workflow run": "HTTP 404", "--add-label jumissa": "HTTP 500: labelit", "pr view": "HTTP 502: pr"})
+    korjaus = korjauspaatos(kaynnista_kortti_ajo=True, agentti=True)
+    tulos = toteuta(vale_gh.api(), REPO, 7, korjaus, Asetukset(Katselmoijat("keksitty-cto", None), AJO))
+    assert tulos.virheita is True and kutsu(vale_gh, "--add-reviewer") is None
+    runko = luotu_kommentti(vale_gh)
+    assert "**CTO:lle**" in runko and "labelien päivitys epäonnistui: HTTP 500: labelit" in runko
+    assert "PR:n tekijää ei saatu, katselmoijaa ei pyydetty: HTTP 502: pr" in runko and "Katselmoija: ei pyydetty" in runko
 
 
 def test_sama_head_kahdesti_kaynnistaa_kortti_ajon_vain_kerran() -> None:

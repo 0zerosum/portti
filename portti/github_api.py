@@ -46,7 +46,7 @@ class GitHubApi:
         self._suorita(argumentit, None)
 
     def hae_pr(self, repo: str, pr_numero: int) -> dict[str, Any]:
-        kentat = "isDraft,mergeable,headRefOid,baseRefOid,author,labels,headRefName,isCrossRepository"
+        kentat = "isDraft,mergeable,headRefOid,baseRefOid,author,labels,headRefName,isCrossRepository,state"
         tulos = self._json(["pr", "view", str(pr_numero), "--repo", repo, "--json", kentat])
         return dict(tulos) if isinstance(tulos, dict) else {}
 

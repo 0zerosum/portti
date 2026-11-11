@@ -10,12 +10,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from portti.ohjaus import CTO, EDELLINEN_KELVOTON, KATSELMOITAVAKSI, KORJATTAVA, KORJAUSKIERROS
+from portti.kommentti import TYONKULUN_KOMMENTOIJA
+from portti.ohjaus import CTO, EDELLINEN_KELVOTON, KATSELMOITAVAKSI, KIERROKSET_PYSAYTETTY, KORJATTAVA, KORJAUSKIERROS
 
 TUNNISTE = "<!-- portti-ohjaus v1 -->"
 KONEDATA_ALKU = "<!-- ohjaus "
 KONEDATA_LOPPU = " -->"
-OHJAUKSEN_KOMMENTOIJA = "github-actions[bot]"
+OHJAUKSEN_KOMMENTOIJA = TYONKULUN_KOMMENTOIJA
 OTSIKOT = {
     CTO: "CTO:lle",
     KATSELMOITAVAKSI: "katselmoitavaksi",
@@ -25,13 +26,19 @@ OTSIKOT = {
 
 
 def konedata(paatos: dict[str, Any]) -> dict[str, Any]:
-    """Toteutuksen idempotenssiin tarvittava tiivistelmä: sama head ja sama päätös ei käynnistä kierrosta uudelleen."""
-    return {
+    """Toteutuksen idempotenssiin tarvittava tiivistelmä: sama head ja sama päätös ei käynnistä kierrosta uudelleen.
+
+    Merkintä `kierrokset_pysaytetty` on mukana vain, kun kortti-ajo on keskeytynyt tälle headille.
+    """
+    tiivistelma = {
         "head_sha": paatos["head_sha"],
         "toimenpide": paatos["toimenpide"],
         "kierros": paatos.get("kierros"),
         "moottorin_versio": paatos["moottorin_versio"],
     }
+    if paatos.get(KIERROKSET_PYSAYTETTY):
+        tiivistelma[KIERROKSET_PYSAYTETTY] = True
+    return tiivistelma
 
 
 def _jasenna_konedata(teksti: str) -> dict[str, Any]:

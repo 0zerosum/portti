@@ -72,7 +72,7 @@ def komento_esto(argumentit: argparse.Namespace) -> int:
 def komento_kommentti(argumentit: argparse.Namespace, api: GitHubApi) -> int:
     evidence = lue_evidence(argumentit.evidence)
     teksti = renderoi(evidence, argumentit.artefakti_url)
-    toimi = kirjoita_tai_paivita(api, argumentit.repo, argumentit.pr, teksti)
+    toimi = kirjoita_tai_paivita(api, argumentit.repo, argumentit.pr, teksti, argumentit.kommentoija)
     print(f"portti: kommentti {toimi}", file=sys.stderr)
     return 0
 

@@ -1,8 +1,9 @@
-"""Komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-epaonnistui` päästä päähän: evidence
+"""Komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-paattyi` päästä päähän: evidence
 synteettisestä reposta, vale-gh GitHubina."""
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -102,7 +103,7 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
             "-f", "alkuperainen_malli=fable", "-f", "korjaa_pr=7", "-f", "kortti=kortti-x"] in [
         argumentit for argumentit, _ in vale.kutsut]
     virhetuloste = capsys.readouterr().err
-    assert "luotu labelit korjauskierros-1" in virhetuloste and "kortti-ajo käynnistetty" in virhetuloste
+    assert "luotu labelit korjauskierros-1" in virhetuloste and "kortti-ajon käynnistys" in virhetuloste
     kaatuva = ValeGh({"label list": [], "issues/7/comments": [[]], "pr view": {"author": {"login": "keksitty-tekija"}}},
                      {"workflow run": "HTTP 403: Resource not accessible by integration"})
     assert main(["ohjaus-toteuta", "--paatos", str(kohde), "--repo", "omistaja/keksitty", "--pr", "7",
@@ -114,21 +115,61 @@ def test_ohjaus_toteuta_komento(tmp_path: Path, capsys: pytest.CaptureFixture[st
         main(["ohjaus-toteuta", "--paatos", str(kelvoton), "--repo", "omistaja/keksitty", "--pr", "7"], api=vale.api())
 
 
-def test_ohjaus_ajo_epaonnistui_vie_prn_ctolle_jumissa() -> None:
-    """Korjauskierroksen kortti-ajo epäonnistui: PR ei jää tilaan korjauskierros."""
-    labelit = [{"name": nimi} for nimi in ("agentti", "malli-opus", "korjauskierros-1", "korjattava")]
-    vale = ValeGh({"label list": [{"name": "agentti"}], "issues/7/comments": [[]],
-                   "pr view": {"author": {"login": "app/keksitty-agentti"}, "headRefOid": "abc123abc123", "labels": labelit}})
-    komento = ["ohjaus-ajo-epaonnistui", "--repo", "omistaja/keksitty", "--pr", "7", "--syy", "ajon tulos failure"]
-    assert main([*komento, "--katselmoija-cto", "keksitty-cto"], api=vale.api()) == 0
+AJO_PAATTYI = ["ohjaus-ajo-paattyi", "--repo", "omistaja/keksitty", "--pr", "7", "--haara", "feature/kortti-x",
+               "--syy", "jobin tulos failure"]
+BOTTI = {"login": "github-actions[bot]"}
+
+
+def pr_tiedot(head: str = "abc123abc123", labelit: tuple[str, ...] = ("agentti", "malli-opus", "korjauskierros-1"),
+              **muutokset: Any) -> dict[str, Any]:
+    perus: dict[str, Any] = {"author": {"login": "app/keksitty-agentti"}, "headRefOid": head, "state": "OPEN",
+                             "headRefName": "feature/kortti-x", "isCrossRepository": False,
+                             "labels": [{"name": nimi} for nimi in labelit]}
+    perus.update(muutokset)
+    return perus
+
+
+def ohjauskommentit(toimenpide: str = "korjauskierros", head: str = "abc123abc123") -> list[list[dict[str, Any]]]:
+    konedata = json.dumps({"head_sha": head, "toimenpide": toimenpide, "kierros": 1, "moottorin_versio": "0.4.0"})
+    return [[{"id": 5, "body": f"<!-- portti-ohjaus v1 -->\n<!-- ohjaus {konedata} -->\n## Ohjaus\n", "user": BOTTI}]]
+
+
+def test_ohjaus_ajo_paattyi_vie_yha_odottavan_prn_ctolle() -> None:
+    """Korjauskierroksen ajo päättyi, mutta PR odottaa samaa kierrosta samalla headilla: ei jää ilman ihmistä."""
+    vale = ValeGh({"label list": [{"name": "agentti"}], "issues/7/comments": ohjauskommentit(), "pr view": pr_tiedot()})
+    assert main([*AJO_PAATTYI, "--katselmoija-cto", "keksitty-cto"], api=vale.api()) == 1, "tulokseton kierros näkyy ajon tuloksessa"
     muokkaukset = [argumentit[5:] for argumentit, _ in vale.kutsut if argumentit[:2] == ["pr", "edit"]]
-    assert muokkaukset == [["--add-label", "jumissa,katselmoitavaksi"], ["--remove-label", "korjattava"],
-                           ["--add-reviewer", "keksitty-cto"]], "kierros-, malli- ja agenttilabelit jäävät"
-    runko = next(json.loads(syote)["body"] for argumentit, syote in vale.kutsut if "POST" in argumentit and syote)
-    assert "**CTO:lle**" in runko and "kortti-ajo epäonnistui: ajon tulos failure" in runko
-    assert '"toimenpide": "cto"' in runko and '"head_sha": "abc123abc123"' in runko
-    with pytest.raises(ValueError, match="headia ei saatu"):
-        main(komento, api=ValeGh({"pr view": {}}).api())
+    assert muokkaukset == [["--add-label", "jumissa,katselmoitavaksi"], ["--add-reviewer", "keksitty-cto"]]
+    runko = next(json.loads(syote)["body"] for argumentit, syote in vale.kutsut if "PATCH" in argumentit and syote)
+    assert "**CTO:lle**" in runko and "ei tuottanut uutta committia (jobin tulos failure)" in runko
+    assert '"kierrokset_pysaytetty": true' in runko and '"toimenpide": "cto"' in runko
+    rikki = [[{"id": 5, "body": "<!-- portti-ohjaus v1 -->\n<!-- ohjaus {rikki -->\n", "user": BOTTI}]]
+    epaselva = ValeGh({"label list": [], "issues/7/comments": rikki, "pr view": pr_tiedot()})
+    assert main(AJO_PAATTYI, api=epaselva.api()) == 1, "lukukelvoton tila viedään ihmiselle"
+
+
+@pytest.mark.parametrize(
+    "pr, kommentit, syy",
+    [
+        (pr_tiedot(head="def456def456"), ohjauskommentit(), "ei odota korjauskierrosta"),
+        (pr_tiedot(), ohjauskommentit("katselmoitavaksi"), "ei odota korjauskierrosta"),
+        (pr_tiedot(), ohjauskommentit("cto"), "ei odota korjauskierrosta"),
+        (pr_tiedot(), [[]], "ei odota korjauskierrosta"),
+        (pr_tiedot(state="CLOSED"), ohjauskommentit(), "ei ole avoin"),
+        (pr_tiedot(headRefName="feature/muu"), ohjauskommentit(), "ei ole tämän repon haarasta"),
+        (pr_tiedot(isCrossRepository=True), ohjauskommentit(), "ei ole tämän repon haarasta"),
+        (pr_tiedot(labelit=("malli-opus",)), ohjauskommentit(), "ei ole labelia agentti"),
+    ],
+)
+def test_ohjaus_ajo_paattyi_ei_koske_prn_joka_ei_odota_kierrosta(
+        pr: dict[str, Any], kommentit: list[list[dict[str, Any]]], syy: str, capsys: pytest.CaptureFixture[str]) -> None:
+    """Uusi commit, muu tila tai väärä PR: ohjaus arvioi itse, eikä ajon päättyminen muuta PR:ää."""
+    vale = ValeGh({"issues/7/comments": kommentit, "pr view": pr})
+    assert main(AJO_PAATTYI, api=vale.api()) == 0
+    assert syy in capsys.readouterr().err
+    kirjoittavat = [argumentit for argumentit, _ in vale.kutsut
+                    if argumentit[:2] in (["pr", "edit"], ["label", "create"]) or "POST" in argumentit or "PATCH" in argumentit]
+    assert kirjoittavat == []
 
 
 def test_ohjaus_edellinen_estaa_saman_kierroksen_kaynnistamisen_kahdesti(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

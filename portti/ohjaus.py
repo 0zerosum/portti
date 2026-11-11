@@ -5,7 +5,8 @@ Päätöstaulun rivit a–e ovat README:n Ohjaus-osiossa; jokaisella rivillä on
 Korjauskierrosten määrä luetaan PR:n labeleista `korjauskierros-<n>`, jotka ovat pysyvä laskuri eikä
 niitä koskaan poisteta. Agentin PR tunnistetaan labelista `agentti`. Edellinen päätös (ohjauskommentin
 konedata) kertoo, onko tälle headille jo käynnistetty kierros: sama tila ei käynnistä toista. Jos konedataa
-ei voitu lukea, korjauskierrosta ei käynnistetä vaan PR menee CTO:lle.
+ei voitu lukea, korjauskierrosta ei käynnistetä vaan PR menee CTO:lle. Jos kortti-ajo on keskeytynyt tälle
+headille ja PR on viety CTO:lle, uutta kierrosta ei käynnistetä ennen uutta headia (`kierrokset_pysaytetty`).
 Uusi korjauskierros vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkuperäisen ajon mallin
 (label `malli-<nimi>`); jos jompikumpi puuttuu, PR menee CTO:lle.
 """
@@ -58,6 +59,7 @@ KIERROKSIA_KOOSTA = 1
 KIERROSNUMERO = re.compile(r"[0-9]{1,6}")
 PAATOS_MUOTO = 1
 EDELLINEN_KELVOTON = "kelvoton"
+KIERROKSET_PYSAYTETTY = "kierrokset_pysaytetty"
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,12 @@ class OhjausSyote:
         return bool((self.edellinen or {}).get(EDELLINEN_KELVOTON))
 
     @property
+    def kierrokset_pysaytetty(self) -> bool:
+        """Kortti-ajo on jo keskeytynyt tälle headille ja PR on viety CTO:lle: uutta kierrosta ei käynnistetä."""
+        edellinen = self.edellinen or {}
+        return edellinen.get("head_sha") == self.pr_head_sha and edellinen.get(KIERROKSET_PYSAYTETTY) is True
+
+    @property
     def kaynnistetty_kierros(self) -> int | None:
         """Kierros, jonka ohjaus on jo käynnistänyt tälle headille, tai None.
 
@@ -125,6 +133,7 @@ class Paatos:
     kierros: int | None = None
     ohje: str | None = None
     kaynnista: bool = False
+    pysaytetty: bool = False
 
 
 def kierroksia_labeleista(labelit: tuple[str, ...]) -> int:
@@ -196,6 +205,9 @@ def _korjauskierros_tai_cto(syote: OhjausSyote, raja: int, cto_label: str, perus
         return _cto(cto_label, f"{perustelu}; forkin PR ei käynnistä korjauskierrosta")
     if syote.edellinen_kelvoton:
         return _cto(cto_label, f"{perustelu}; edellistä ohjauspäätöstä ei voitu lukea, korjauskierrosta ei käynnistetä")
+    if syote.kierrokset_pysaytetty:
+        selite = f"{perustelu}; kortti-ajo on jo keskeytynyt tälle headille, uutta korjauskierrosta ei käynnistetä"
+        return Paatos(CTO, (LABEL_KATSELMOITAVAKSI, LABEL_JUMISSA), ROOLI_CTO, selite, pysaytetty=True)
     kaynnistetty = syote.kaynnistetty_kierros
     if kaynnistetty is not None:
         selite = f"{perustelu}; korjauskierros {kaynnistetty} on jo käynnistetty tälle headille"
@@ -274,6 +286,7 @@ def paatos_sanakirjaksi(syote: OhjausSyote, paatos: Paatos) -> dict[str, Any]:
         "katselmoijan_rooli": paatos.katselmoijan_rooli,
         "kierros": paatos.kierros,
         "kaynnista_kortti_ajo": paatos.kaynnista,
+        KIERROKSET_PYSAYTETTY: paatos.pysaytetty or syote.kierrokset_pysaytetty,
         "kortti": syote.kortti if korjaus else None,
         "alkuperainen_malli": syote.alkuperainen_malli if korjaus else None,
         "ohje": paatos.ohje,
@@ -288,9 +301,23 @@ def paatos_keskeytyneelle_ajolle(head_sha: str, labelit: tuple[str, ...], syy: s
     """Kortti-ajoa ei saatu käyntiin tai se epäonnistui: PR menee CTO:lle labelilla jumissa.
 
     Tulos on samaa muotoa kuin `paatos_sanakirjaksi`, joten toteutus soveltaa sen kuten minkä tahansa päätöksen.
+    Päätös pysäyttää korjauskierrokset tälle headille: sama head ei käynnistä uutta maksullista ajoa.
     """
     syote = OhjausSyote(head_sha, TESTIT_PUUTTUU, None, (), labelit)
-    return paatos_sanakirjaksi(syote, _cto(LABEL_JUMISSA, syy))
+    paatos = Paatos(CTO, (LABEL_KATSELMOITAVAKSI, LABEL_JUMISSA), ROOLI_CTO, syy, pysaytetty=True)
+    return paatos_sanakirjaksi(syote, paatos)
+
+
+def odottaa_korjauskierrosta(edellinen: dict[str, Any] | None, pr_head_sha: str) -> bool:
+    """Onko PR yhä tilassa korjauskierros tälle headille: ohjaus käynnisti kierroksen eikä uutta headia ole tullut.
+
+    Lukukelvoton edellinen päätös tulkitaan odottavaksi: epäselvä tila viedään ihmiselle.
+    """
+    if not edellinen:
+        return False
+    if edellinen.get(EDELLINEN_KELVOTON):
+        return True
+    return edellinen.get("toimenpide") == KORJAUSKIERROS and edellinen.get("head_sha") == pr_head_sha
 
 
 def paatos_tekstiksi(paatos: dict[str, Any]) -> str:

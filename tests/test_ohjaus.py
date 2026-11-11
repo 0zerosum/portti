@@ -13,7 +13,9 @@ from portti.ohjaus import (
     LABEL_AGENTTI,
     OhjausSyote,
     kierroksia_labeleista,
+    odottaa_korjauskierrosta,
     paata,
+    paatos_keskeytyneelle_ajolle,
     paatos_sanakirjaksi,
     paatos_tekstiksi,
 )
@@ -223,6 +225,43 @@ def test_kelvoton_edellinen_paatos_vie_agentin_korjauksen_ctolle_mutta_ei_muuta_
     assert paata(syote(edellinen=kelvoton)).toimenpide == KATSELMOITAVAKSI
     assert paata(syote(evidence=evidence("KOVA"), edellinen=kelvoton)).perustelu == "portti: KOVA"
     assert paata(syote(testit="failure", edellinen=kelvoton)).toimenpide == KORJATTAVA
+
+
+def test_keskeytynyt_ajo_pysayttaa_korjauskierrokset_samalle_headille() -> None:
+    """CTO:lle jumissa viety PR ei saa uutta maksullista kierrosta, vaikka ohjaus ajetaan samalle headille uudelleen."""
+    pysaytetty = {"head_sha": HEAD, "toimenpide": "cto", "kierros": None, "kierrokset_pysaytetty": True}
+    tila = syote(testit="failure", labelit=YKSI_KIERROS, edellinen=pysaytetty)
+    paatos = paata(tila)
+    assert paatos.toimenpide == CTO and set(paatos.labelit) == {"katselmoitavaksi", "jumissa"} and paatos.kaynnista is False
+    assert "kortti-ajo on jo keskeytynyt tälle headille" in paatos.perustelu
+    assert paatos_sanakirjaksi(tila, paatos)["kierrokset_pysaytetty"] is True
+    liian_iso = paata(syote(evidence=evidence(LIIAN_ISO, "YLI"), labelit=AGENTTI, edellinen=pysaytetty))
+    assert liian_iso.toimenpide == CTO and "jumissa" in liian_iso.labelit and liian_iso.kaynnista is False
+    lapi = syote(labelit=YKSI_KIERROS, edellinen=pysaytetty)
+    assert paata(lapi).toimenpide == KATSELMOITAVAKSI
+    assert paatos_sanakirjaksi(lapi, paata(lapi))["kierrokset_pysaytetty"] is True, "merkintä säilyy headilla"
+    uusi_head = syote(testit="failure", labelit=YKSI_KIERROS, edellinen={**pysaytetty, "head_sha": "vanha"})
+    assert paata(uusi_head).kaynnista is True, "uusi head aloittaa uuden arvion"
+    assert paatos_sanakirjaksi(uusi_head, paata(uusi_head))["kierrokset_pysaytetty"] is False
+    ilman_merkkia = syote(testit="failure", labelit=YKSI_KIERROS, edellinen=edellinen("cto", None))
+    assert paata(ilman_merkkia).kaynnista is True, "tavallinen CTO-päätös ei pysäytä kierroksia"
+
+
+def test_paatos_keskeytyneelle_ajolle_vie_ctolle_ja_pysayttaa_kierrokset() -> None:
+    paatos = paatos_keskeytyneelle_ajolle(HEAD, (*YKSI_KIERROS, "korjattava"), "kortti-ajo ei tuottanut committia")
+    assert paatos["toimenpide"] == CTO and paatos["lisaa_labelit"] == ["jumissa", "katselmoitavaksi"]
+    assert paatos["poista_labelit"] == ["korjattava"], "kierros-, malli- ja agenttilabelit jäävät"
+    assert paatos["kierrokset_pysaytetty"] is True and paatos["agentti"] is True and paatos["katselmoijan_rooli"] == "cto"
+    assert paatos["kaynnista_kortti_ajo"] is False and paatos["perustelu"] == "kortti-ajo ei tuottanut committia"
+
+
+def test_odottaa_korjauskierrosta() -> None:
+    assert odottaa_korjauskierrosta(edellinen(), HEAD) is True
+    assert odottaa_korjauskierrosta(edellinen(head="vanha"), HEAD) is False, "agentti pushasi uuden commitin"
+    assert odottaa_korjauskierrosta(edellinen("cto", None), HEAD) is False
+    assert odottaa_korjauskierrosta(edellinen("katselmoitavaksi", None), HEAD) is False
+    assert odottaa_korjauskierrosta(None, HEAD) is False
+    assert odottaa_korjauskierrosta({"kelvoton": True}, HEAD) is True, "epäselvä tila viedään ihmiselle"
 
 
 @pytest.mark.parametrize("kierros", ["1", None, True, 0])
