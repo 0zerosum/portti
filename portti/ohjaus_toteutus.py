@@ -2,6 +2,8 @@
 
 Kortti-ajo käynnistetään vain, kun päätös sanoo niin (`kaynnista_kortti_ajo`): moottori päättää sen
 edellisestä päätöksestä, jonka `edellinen_paatos` lukee ohjauskommentin konedatasta ennen päätöstä.
+Ohjauskommentiksi kelpaa vain ohjauksen oman kirjoittajan kommentti (`Asetukset.kommentoija`): muiden
+kommentteja ei lueta eikä päivitetä, vaikka niissä olisi ohjauksen tunniste.
 Katselmoijien tunnukset tulevat parametreina, eivät reposta.
 """
 
@@ -11,9 +13,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from portti.github_api import GitHubApi
-from portti.kommentti import kirjoita_tai_paivita
+from portti.kommentti import kirjoita_tai_paivita, kommentin_kirjoittaja
 from portti.ohjaus import KIERROS_ETULIITE, KORJAUSKIERROS, LABEL_AGENTTI, ROOLI_T1, TIER_ETULIITE
-from portti.ohjaus_kommentti import lue_ohjauksen_konedata, renderoi_ohjaus
+from portti.ohjaus_kommentti import OHJAUKSEN_KOMMENTOIJA, lue_ohjauksen_konedata, renderoi_ohjaus
 
 LABELIEN_VARIT = {
     "katselmoitavaksi": "0e8a16",
@@ -46,6 +48,15 @@ class KorjausAjo:
     haara: str
 
 
+@dataclass(frozen=True)
+class Asetukset:
+    """Toteutuksen ympäristö: katselmoijat, korjauskierroksen kortti-ajo ja ohjauskommentin kirjoittaja."""
+
+    katselmoijat: Katselmoijat
+    korjausajo: KorjausAjo | None
+    kommentoija: str = OHJAUKSEN_KOMMENTOIJA
+
+
 def ratkaise_katselmoija(rooli: str | None, katselmoijat: Katselmoijat) -> KatselmoijaValinta:
     """T1 puuttuu → CTO. CTO puuttuu → ei pyyntöä ja huomautus."""
     if rooli is None:
@@ -66,9 +77,16 @@ def labelin_vari(label: str) -> str:
     return LABELIEN_VARIT.get(label, OLETUSVARI)
 
 
-def edellinen_paatos(api: GitHubApi, repo: str, pr_numero: int) -> dict[str, Any] | None:
-    """PR:n ohjauskommentin konedata (head, toimenpide, kierros) tai None, jos ohjaus ei ole vielä kommentoinut."""
+def edellinen_paatos(
+    api: GitHubApi, repo: str, pr_numero: int, kommentoija: str = OHJAUKSEN_KOMMENTOIJA
+) -> dict[str, Any] | None:
+    """PR:n ohjauskommentin konedata (head, toimenpide, kierros) tai None, jos ohjaus ei ole vielä kommentoinut.
+
+    Vain kommentoijan oma kommentti luetaan: muu kommentoija ei voi väärentää edellistä päätöstä.
+    """
     for kommentti in api.hae_kommentit(repo, pr_numero):
+        if kommentin_kirjoittaja(kommentti) != kommentoija:
+            continue
         konedata = lue_ohjauksen_konedata(str(kommentti.get("body", "")))
         if konedata is not None:
             return konedata
@@ -126,17 +144,14 @@ def _kaynnista_korjaus(
     return f"kortti-ajo käynnistetty: {korjausajo.tyonkulku}, kortti {kortti}, malli {malli}, kierros {paatos.get('kierros')}"
 
 
-def toteuta(
-    api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], katselmoijat: Katselmoijat,
-    korjausajo: KorjausAjo | None,
-) -> list[str]:
+def toteuta(api: GitHubApi, repo: str, pr_numero: int, paatos: dict[str, Any], asetukset: Asetukset) -> list[str]:
     """Soveltaa päätöksen ja palauttaa tehdyt toimet lokiriveinä."""
     toimet = _paivita_labelit(api, repo, pr_numero, paatos)
-    valinta = ratkaise_katselmoija(paatos.get("katselmoijan_rooli"), katselmoijat)
+    valinta = ratkaise_katselmoija(paatos.get("katselmoijan_rooli"), asetukset.katselmoijat)
     pyynto = _pyyda_katselmoija(api, repo, pr_numero, valinta)
-    kaynnistys = _kaynnista_korjaus(api, repo, pr_numero, paatos, korjausajo)
+    kaynnistys = _kaynnista_korjaus(api, repo, pr_numero, paatos, asetukset.korjausajo)
     huomautukset = [huomautus for huomautus in (valinta.huomautus, pyynto, kaynnistys) if huomautus]
     teksti = renderoi_ohjaus(paatos, valinta.tunnus, huomautukset)
     toimet += [huomautus for huomautus in (pyynto, kaynnistys) if huomautus]
-    toimet.append(f"ohjauskommentti {kirjoita_tai_paivita(api, repo, pr_numero, teksti)}")
+    toimet.append(f"ohjauskommentti {kirjoita_tai_paivita(api, repo, pr_numero, teksti, asetukset.kommentoija)}")
     return toimet

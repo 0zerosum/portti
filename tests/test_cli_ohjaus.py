@@ -113,9 +113,13 @@ def test_ohjaus_edellinen_estaa_saman_kierroksen_kaynnistamisen_kahdesti(tmp_pat
     assert main([*ohjaa, "--labelit", "agentti,malli-opus"]) == 0
     eka = json.loads(capsys.readouterr().out)
     assert eka["kierros"] == 1 and eka["kaynnista_kortti_ajo"] is True
-    kommentit = [{"id": 1, "body": "ihmisen kommentti"}, {"id": 2, "body": renderoi_ohjaus(eka, None, [])}]
+    kommentit = [{"id": 1, "body": "ihmisen kommentti", "user": {"login": "keksitty-tekija"}},
+                 {"id": 2, "body": renderoi_ohjaus(eka, None, []), "user": {"login": "github-actions[bot]"}}]
     vale = ValeGh({"issues/7/comments": [kommentit]})
     edellinen = tmp_path / "edellinen.json"
+    assert main(["ohjaus-edellinen", "--repo", "omistaja/keksitty", "--pr", "7", "--kommentoija", "keksitty-botti"],
+                api=vale.api()) == 0
+    assert capsys.readouterr().out == "null\n", "vain kommentoijan oma ohjauskommentti luetaan"
     assert main(["ohjaus-edellinen", "--repo", "omistaja/keksitty", "--pr", "7", "--tuloste", str(edellinen)], api=vale.api()) == 0
     assert "korjauskierros headille" in capsys.readouterr().err
     assert json.loads(edellinen.read_text(encoding="utf-8")) == {

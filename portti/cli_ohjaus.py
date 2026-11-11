@@ -12,7 +12,13 @@ from typing import Any
 from portti.evidence import lue_evidence
 from portti.github_api import GitHubApi
 from portti.ohjaus import TESTIEN_TILAT, OhjausSyote, lue_paatos, paata, paatos_sanakirjaksi, paatos_tekstiksi
-from portti.ohjaus_toteutus import Katselmoijat, KorjausAjo, edellinen_paatos, toteuta
+from portti.ohjaus_kommentti import OHJAUKSEN_KOMMENTOIJA
+from portti.ohjaus_toteutus import Asetukset, Katselmoijat, KorjausAjo, edellinen_paatos, toteuta
+
+
+def _lisaa_kommentoija(komento: argparse.ArgumentParser) -> None:
+    komento.add_argument("--kommentoija", default=OHJAUKSEN_KOMMENTOIJA,
+                         help="tunnus, jonka kirjoittama ohjauskommentti luetaan ja päivitetään; muiden kommentit ohitetaan")
 
 
 def _lisaa_edellinen(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -20,6 +26,7 @@ def _lisaa_edellinen(alikomennot: argparse._SubParsersAction[argparse.ArgumentPa
     komento.add_argument("--repo", required=True)
     komento.add_argument("--pr", type=int, required=True)
     komento.add_argument("--tuloste", type=Path, default=None, help="kohdetiedosto (oletus stdout); null, jos päätöstä ei ole")
+    _lisaa_kommentoija(komento)
 
 
 def _lisaa_ohjaa(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -45,6 +52,7 @@ def _lisaa_toteuta(alikomennot: argparse._SubParsersAction[argparse.ArgumentPars
     komento.add_argument("--katselmoija-t1", default="", help="T1-katselmoijan GitHub-tunnus; puuttuessa käytetään CTO:ta")
     komento.add_argument("--kortti-ajo", default="", help="kuluttajan kortti-ajon työnkulkutiedosto korjauskierrosta varten")
     komento.add_argument("--oletushaara", default="main", help="haara, jolta kortti-ajo käynnistetään")
+    _lisaa_kommentoija(komento)
 
 
 def lisaa_ohjaus_komennot(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -86,7 +94,7 @@ def _labelit(teksti: str) -> tuple[str, ...]:
 
 
 def komento_ohjaus_edellinen(argumentit: argparse.Namespace, api: GitHubApi) -> int:
-    edellinen = edellinen_paatos(api, argumentit.repo, argumentit.pr)
+    edellinen = edellinen_paatos(api, argumentit.repo, argumentit.pr, argumentit.kommentoija)
     teksti = json.dumps(edellinen, ensure_ascii=False, sort_keys=True) + "\n"
     if argumentit.tuloste is not None:
         argumentit.tuloste.write_text(teksti, encoding="utf-8")
@@ -124,6 +132,7 @@ def komento_ohjaus_toteuta(argumentit: argparse.Namespace, api: GitHubApi) -> in
     paatos = lue_paatos(argumentit.paatos)
     katselmoijat = Katselmoijat(argumentit.katselmoija_cto or None, argumentit.katselmoija_t1 or None)
     korjausajo = KorjausAjo(argumentit.kortti_ajo, argumentit.oletushaara) if argumentit.kortti_ajo else None
-    for toimi in toteuta(api, argumentit.repo, argumentit.pr, paatos, katselmoijat, korjausajo):
+    asetukset = Asetukset(katselmoijat, korjausajo, argumentit.kommentoija)
+    for toimi in toteuta(api, argumentit.repo, argumentit.pr, paatos, asetukset):
         print(f"portti: ohjaus-toteuta: {toimi}", file=sys.stderr)
     return 0

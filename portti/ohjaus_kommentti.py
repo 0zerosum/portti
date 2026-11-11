@@ -1,6 +1,8 @@
 """Ohjauskommentti: yksi päivittyvä kommentti per PR, konedata JSONina tunnisteen jälkeen.
 
 Tunniste eroaa portin kommentista, jotta shadow-raportti ei lue ohjauksen konedataa portin verdictinä.
+Ohjaus lukee ja päivittää vain oman kirjoittajansa kommenttia (`OHJAUKSEN_KOMMENTOIJA`): kuka tahansa voi
+kirjoittaa kommentin, jossa on sama tunniste, mutta sitä ei lueta edellisenä päätöksenä.
 """
 
 from __future__ import annotations
@@ -8,11 +10,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from portti.ohjaus import CTO, KATSELMOITAVAKSI, KORJATTAVA, KORJAUSKIERROS
+from portti.ohjaus import CTO, EDELLINEN_KELVOTON, KATSELMOITAVAKSI, KORJATTAVA, KORJAUSKIERROS
 
 TUNNISTE = "<!-- portti-ohjaus v1 -->"
 KONEDATA_ALKU = "<!-- ohjaus "
 KONEDATA_LOPPU = " -->"
+OHJAUKSEN_KOMMENTOIJA = "github-actions[bot]"
 OTSIKOT = {
     CTO: "CTO:lle",
     KATSELMOITAVAKSI: "katselmoitavaksi",
@@ -31,15 +34,27 @@ def konedata(paatos: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _jasenna_konedata(teksti: str) -> dict[str, Any]:
+    """Konedatan JSON-objekti. Jäsentymätön tai muun muotoinen sisältö merkitään kelvottomaksi, ei arvata."""
+    try:
+        tulos = json.loads(teksti)
+    except json.JSONDecodeError:
+        return {EDELLINEN_KELVOTON: True}
+    return tulos if isinstance(tulos, dict) else {EDELLINEN_KELVOTON: True}
+
+
 def lue_ohjauksen_konedata(kommentin_teksti: str) -> dict[str, Any] | None:
-    """Palauttaa ohjauskommentin konedatan tai None, jos kommentti ei ole ohjauksen."""
+    """Palauttaa ohjauskommentin konedatan tai None, jos kommentti ei ole ohjauksen.
+
+    Ohjauskommentti, jonka konedata puuttuu tai ei jäsenny, palautetaan merkittynä kelvottomaksi
+    (`{"kelvoton": true}`): ohjaus ei kaadu siihen, ja moottori vie korjauskierrosta odottavan PR:n CTO:lle.
+    """
     if not kommentin_teksti.startswith(TUNNISTE):
         return None
     for rivi in kommentin_teksti.splitlines():
         if rivi.startswith(KONEDATA_ALKU) and rivi.endswith(KONEDATA_LOPPU):
-            tulos = json.loads(rivi[len(KONEDATA_ALKU):-len(KONEDATA_LOPPU)])
-            return tulos if isinstance(tulos, dict) else None
-    return None
+            return _jasenna_konedata(rivi[len(KONEDATA_ALKU):-len(KONEDATA_LOPPU)])
+    return {EDELLINEN_KELVOTON: True}
 
 
 def _otsikko(paatos: dict[str, Any]) -> str:

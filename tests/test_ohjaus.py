@@ -207,6 +207,19 @@ def test_edellinen_paatos_toiselta_headilta_tai_muu_toimenpide_ei_esta_uutta_kie
     assert ihmisen.toimenpide == KORJATTAVA, "edellinen päätös ei tee ihmisen PR:stä agentin PR:ää"
 
 
+def test_kelvoton_edellinen_paatos_vie_agentin_korjauksen_ctolle_mutta_ei_muuta_muita_riveja() -> None:
+    """Ohjauskommentin konedataa ei voitu lukea: maksullista ajoa ei käynnistetä arvauksen varassa."""
+    kelvoton = {"kelvoton": True}
+    testit = paata(syote(testit="failure", labelit=AGENTTI, edellinen=kelvoton))
+    assert testit.toimenpide == CTO and set(testit.labelit) == {"katselmoitavaksi", "jumissa"}
+    assert "edellistä ohjauspäätöstä ei voitu lukea" in testit.perustelu and testit.kaynnista is False
+    koko = paata(syote(evidence=evidence(LIIAN_ISO, "YLI"), labelit=AGENTTI, edellinen=kelvoton))
+    assert koko.toimenpide == CTO and set(koko.labelit) == {"katselmoitavaksi", "liian-iso"}
+    assert paata(syote(edellinen=kelvoton)).toimenpide == KATSELMOITAVAKSI
+    assert paata(syote(evidence=evidence("KOVA"), edellinen=kelvoton)).perustelu == "portti: KOVA"
+    assert paata(syote(testit="failure", edellinen=kelvoton)).toimenpide == KORJATTAVA
+
+
 @pytest.mark.parametrize("kierros", ["1", None, True, 0])
 def test_kelvoton_kierros_edellisessa_paatoksessa_ei_kaynnista_uutta_ajoa(kierros: Any) -> None:
     paatos = paata(syote(testit="failure", labelit=YKSI_KIERROS, edellinen=edellinen(kierros=kierros)))

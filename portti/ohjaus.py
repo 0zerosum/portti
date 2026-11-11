@@ -4,7 +4,8 @@ Deterministinen ja ilman kielimallia. Fail-closed: puuttuva tai ristiriitainen t
 Päätöstaulun rivit a–e ovat README:n Ohjaus-osiossa; jokaisella rivillä on testi (tests/test_ohjaus.py).
 Korjauskierrosten määrä luetaan PR:n labeleista `korjauskierros-<n>`, jotka ovat pysyvä laskuri eikä
 niitä koskaan poisteta. Agentin PR tunnistetaan labelista `agentti`. Edellinen päätös (ohjauskommentin
-konedata) kertoo, onko tälle headille jo käynnistetty kierros: sama tila ei käynnistä toista.
+konedata) kertoo, onko tälle headille jo käynnistetty kierros: sama tila ei käynnistä toista. Jos konedataa
+ei voitu lukea, korjauskierrosta ei käynnistetä vaan PR menee CTO:lle.
 Uusi korjauskierros vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkuperäisen ajon mallin
 (label `malli-<nimi>`); jos jompikumpi puuttuu, PR menee CTO:lle.
 """
@@ -54,6 +55,7 @@ TUNNETUT_TIERIT = (*T1_TIERIT, TIER_YLI)
 KIERROKSIA_TESTEISTA = 2
 KIERROKSIA_KOOSTA = 1
 PAATOS_MUOTO = 1
+EDELLINEN_KELVOTON = "kelvoton"
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,11 @@ class OhjausSyote:
             return None
         nimi = next(iter(nimet))
         return nimi if nimi in SALLITUT_MALLIT else None
+
+    @property
+    def edellinen_kelvoton(self) -> bool:
+        """Ohjauskommentin konedataa ei voitu lukea: edellistä päätöstä ei tunneta eikä sitä arvata."""
+        return bool((self.edellinen or {}).get(EDELLINEN_KELVOTON))
 
     @property
     def kaynnistetty_kierros(self) -> int | None:
@@ -169,6 +176,8 @@ def _korjauskierros_tai_cto(syote: OhjausSyote, raja: int, cto_label: str, perus
     """
     if syote.forkki:
         return _cto(cto_label, f"{perustelu}; forkin PR ei käynnistä korjauskierrosta")
+    if syote.edellinen_kelvoton:
+        return _cto(cto_label, f"{perustelu}; edellistä ohjauspäätöstä ei voitu lukea, korjauskierrosta ei käynnistetä")
     kaynnistetty = syote.kaynnistetty_kierros
     if kaynnistetty is not None:
         selite = f"{perustelu}; korjauskierros {kaynnistetty} on jo käynnistetty tälle headille"

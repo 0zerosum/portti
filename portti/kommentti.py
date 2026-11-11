@@ -91,11 +91,22 @@ def renderoi(evidence: dict[str, Any], artefakti_url: str | None) -> str:
     return "\n".join(rivit) + "\n"
 
 
-def kirjoita_tai_paivita(api: GitHubApi, repo: str, pr_numero: int, teksti: str) -> str:
-    """Luo portin kommentin tai päivittää saman tilan olemassa olevan. Palauttaa tehdyn toimen."""
+def kommentin_kirjoittaja(kommentti: dict[str, Any]) -> str:
+    """Kirjoittajan tunnus GitHubin API:n kommenttioliosta; tyhjä, jos tietoa ei ole."""
+    kayttaja = kommentti.get("user")
+    return str(kayttaja.get("login", "")) if isinstance(kayttaja, dict) else ""
+
+
+def kirjoita_tai_paivita(api: GitHubApi, repo: str, pr_numero: int, teksti: str, kirjoittaja: str | None = None) -> str:
+    """Luo portin kommentin tai päivittää saman tilan olemassa olevan. Palauttaa tehdyn toimen.
+
+    Kun `kirjoittaja` on annettu, päivitetään vain sen kirjoittamaa kommenttia: toisen käyttäjän kommentti,
+    jossa on sama tunniste, ohitetaan ja oma kommentti luodaan sen rinnalle.
+    """
     oma_tunniste = teksti.splitlines()[0]
     omat = [kommentti for kommentti in api.hae_kommentit(repo, pr_numero)
-            if str(kommentti.get("body", "")).splitlines()[:1] == [oma_tunniste]]
+            if str(kommentti.get("body", "")).splitlines()[:1] == [oma_tunniste]
+            and (kirjoittaja is None or kommentin_kirjoittaja(kommentti) == kirjoittaja)]
     if not omat:
         api.luo_kommentti(repo, pr_numero, teksti)
         return "luotu"
