@@ -58,6 +58,7 @@ def komento_kortin_tila(argumentit: argparse.Namespace) -> int:
         return 1
     print(tila or "")
     if argumentit.vaadi is not None and tila != normalisoi(argumentit.vaadi):
-        print(f"portti: kortin-tila: kortin tila on {tila or 'merkitsemättä'}, vaaditaan {argumentit.vaadi}", file=sys.stderr)
+        nykyinen = tila or "merkitsemättä kortin alkuosassa (ennen ensimmäistä väliotsikkoa, vaakaviivaa tai koodilohkoa)"
+        print(f"portti: kortin-tila: kortin tila on {nykyinen}, vaaditaan {argumentit.vaadi}", file=sys.stderr)
         return 1
     return 0

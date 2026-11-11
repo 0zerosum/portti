@@ -43,20 +43,26 @@ def test_mallirivi_vaarassa_muodossa_estaa_ajon(rivi: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "koodilohko",
-    ["```\n- Malli: fable\n```", "<!-- - Malli: fable -->", "````markdown\n```text\n- Malli: fable\n```\n````",
-     "```\n```text\n- Malli: sonnet\n```"],
+    "runko",
+    ["## Meta\n- Malli: sonnet", "## Meta\n- Malli: fable", "```\n- Malli: fable\n```", "---\n- **Malli:** haiku",
+     "<details>\n\n- Malli: claude-sonnet-5-5\n</details>", "- Esimerkki:\n  ```\n- Malli: sonnet\n  ```",
+     "- Esimerkki:\n  ```\n```\n- Malli: fable\n```", "<div>\n```\n</div>\n\n- Malli: sonnet",
+     "<!-->\n- Malli: sonnet\n<!-- huom -->", "<!--\n- Malli: fable\n-->", "## Meta\n1. Malli: opus"],
 )
-def test_koodilohkon_mallirivi_ei_valitse_mallia(koodilohko: str) -> None:
-    valinta = valitse_malli(kortti(koodilohko))
+def test_mallirivi_kortin_rungossa_estaa_ajon(runko: str) -> None:
+    """Väärään paikkaan kirjoitettu mallirivi ei ohitu: ei kielletty arvo, eikä fable koodilohkon tai kommentin takaa."""
+    with pytest.raises(MalliVirhe, match="on kortin rungossa"):
+        valitse_malli(kortti() + runko + "\n")
+    with pytest.raises(MalliVirhe):
+        valitse_malli(kortti("- Malli: opus") + runko + "\n", kasin="opus")
+
+
+def test_rungon_muu_malli_alkuinen_rivi_ei_ole_mallirivi() -> None:
+    """Malli on tavallinen sana: rungon rivi, jonka arvo ei ole mallin nimi, ei estä ajoa."""
+    runko = "## Hyväksymiskriteeri\n- Malli: tilausmalliin uusi kenttä\n1. **Malli:** laskutusmalli päivittyy\n"
+    valinta = valitse_malli(kortti() + runko)
     assert (valinta.nimi, valinta.lahde) == ("opus", LAHDE_OLETUS)
-
-
-def test_kommentti_ei_piilota_eika_tuo_mallirivia() -> None:
-    with pytest.raises(MalliVirhe, match="HTML-kommentin sisällä"):
-        valitse_malli(kortti("<!--", "- Malli: fable", "-->"))
-    with pytest.raises(MalliVirhe, match="sonnet"):
-        valitse_malli(kortti("<!-->", "- Malli: sonnet", "<!-- huom -->")), "näkyvä kielletty malli ei jää lukematta"
+    assert valitse_malli(kortti("- Malli: fable") + runko).nimi == "fable"
 
 
 def test_sallitut_mallit_ovat_vain_opus_ja_fable() -> None:

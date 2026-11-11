@@ -1,15 +1,16 @@
 """Kortin metarivit: kuluttajarepon kortin (kortit/<slug>.md) rivien `- Avain: arvo` luku.
 
 Moottori lukee kortista vain tilarivin ja mallirivin, esimerkiksi `- Tila: hyväksytty` ja `- Malli: fable`.
-Metarivi on ylätason luettelorivi: `-` tai `*`, enintään kolme välilyöntiä sisennystä. Avain ei riipu
-kirjainkoosta, ja arvosta luetaan pois sulkuhuomautus (`opus (oletus; ...)` on `opus`).
+Rivit luetaan kortin raakatekstistä, eikä Markdownin rakennetta tulkita:
 
-Kortin tilaa tai mallia ei arvata:
-- Aidatun koodilohkon sisältö ei ole metatietoa. Aidat tulkitaan CommonMarkin mukaan: lohkon sulkee vain sama
-  merkki vähintään yhtä pitkänä ilman lisätekstiä, ja sulkematon lohko jatkuu kortin loppuun.
-- Rivi, joka näyttää saman avaimen metariviltä muussa muodossa (korostus, numerointi, muu luettelomerkki,
-  tehtävälistan ruutu tai syvempi sisennys) tai HTML-kommentin sisällä, on virhe eikä ohitu.
-- Sama avain kahdesti on virhe.
+- Metarivit ovat kortin alkuosassa: otsikon jälkeen, ennen ensimmäistä väliotsikkoa, vaakaviivaa tai riviä, joka
+  voi avata koodilohkon, kaavan, HTML-lohkon tai kommentin. Alkuosan rivi ei siis voi olla sellaisen sisällä.
+- Metarivi on ylätason luettelorivi: `-` tai `*`, enintään kolme välilyöntiä sisennystä. Avain ei riipu
+  kirjainkoosta, ja arvosta luetaan pois sulkuhuomautus (`opus (oletus; ...)` on `opus`).
+- Alkuosassa avaimen rivi muussa muodossa (korostus, numerointi, muu luettelomerkki, tehtävälistan ruutu tai
+  syvempi sisennys) on virhe eikä ohitu, ja sama avain kahdesti on virhe: tilaa tai mallia ei arvata.
+- Alkuosan jälkeistä tekstiä (runkoa) ei lueta metariveiksi. `rungon_arvot` palauttaa rungon avainrivien arvot,
+  jotta kutsuja voi hylätä väärään paikkaan kirjoitetun rivin.
 Kortin haara on `feature/<slug>`.
 """
 
@@ -17,28 +18,22 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
 
 SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 HAARAN_ETULIITE = "feature/"
 TILA_HYVAKSYTTY = "hyväksytty"
-AITA = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-KOMMENTIN_ALKU = "<!--"
-KOMMENTIN_LOPPU = "-->"
 LUETTELOMERKKI = r"(?:[-*+–—•]|\d+[.)])"
 KOROSTUS = r"[*_`]"
 RUUTU = r"(?:\[[ xX]?\]\s*)?"
+OTSIKKO = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
+VAAKAVIIVA = re.compile(r"^ {0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$")
+# Rivi, joka voi avata koodilohkon (aita), kaavan ($$) tai HTML-lohkon, myös luettelon tai lainauksen sisällä.
+RAKENTEEN_ALKU = re.compile(r"^[\s>*+\-]*(?:\d+[.)]\s*)?(?:`{3,}|~{3,}|\$\$|<[A-Za-z/!?])")
+KOMMENTIN_ALKU = "<!--"
 
 
 class KorttiVirhe(ValueError):
     """Kortin metarivi on moniselitteinen tai väärässä muodossa."""
-
-
-@dataclass(frozen=True)
-class _Rivi:
-    teksti: str
-    koodilohkossa: bool
-    kommentissa: bool
 
 
 def normalisoi(arvo: str) -> str:
@@ -47,64 +42,31 @@ def normalisoi(arvo: str) -> str:
     return ilman_huomautusta.strip().strip("`").strip().lower()
 
 
-def _aidan_avaus(rivi: str) -> tuple[str, int] | None:
-    """Avaavan aidan merkki ja pituus, tai None. Gravisaidan lisätekstissä ei saa olla gravista."""
-    osuma = AITA.match(rivi)
-    if osuma is None or (osuma.group(1)[0] == "`" and "`" in osuma.group(2)):
-        return None
-    return osuma.group(1)[0], len(osuma.group(1))
+def _paattaa_alkuosan(rivi: str, kortin_otsikko: bool) -> bool:
+    """Päättääkö rivi kortin alkuosan. Kortin ensimmäinen rivi saa olla otsikko."""
+    if KOMMENTIN_ALKU in rivi or RAKENTEEN_ALKU.match(rivi) or VAAKAVIIVA.match(rivi):
+        return True
+    return OTSIKKO.match(rivi) is not None and not kortin_otsikko
 
 
-def _sulkee_aidan(rivi: str, aita: tuple[str, int]) -> bool:
-    osuma = AITA.match(rivi)
-    return osuma is not None and osuma.group(1)[0] == aita[0] and len(osuma.group(1)) >= aita[1] and not osuma.group(2).strip()
-
-
-def _kommentin_loppu(teksti: str, alku: int, rivin_loppu: int, nykyinen: int) -> int:
-    """Viimeisen tällä rivillä alkavan HTML-kommentin loppukohta; nykyinen, jos rivillä ei ala kommenttia.
-
-    Kommentti päättyy seuraavaan `-->` (myös `<!-->` ja `<!--->` ovat valmiita kommentteja) tai kortin loppuun.
-    """
-    loppu = nykyinen
-    kohta = teksti.find(KOMMENTIN_ALKU, alku, rivin_loppu)
-    while kohta != -1:
-        sulku = teksti.find(KOMMENTIN_LOPPU, kohta + 2)
-        loppu = len(teksti) if sulku == -1 else sulku + len(KOMMENTIN_LOPPU)
-        kohta = teksti.find(KOMMENTIN_ALKU, loppu, rivin_loppu)
-    return loppu
-
-
-def _rivit(kortin_teksti: str) -> list[_Rivi]:
-    """Kortin rivit ja tieto siitä, onko rivi aidatussa koodilohkossa tai alkaako se HTML-kommentin sisältä.
-
-    Koodilohkon sisällä `<!--` on tekstiä, ja kommentin sisällä aita ei avaa koodilohkoa.
-    """
-    teksti = unicodedata.normalize("NFC", kortin_teksti)
-    rivit: list[_Rivi] = []
-    aita: tuple[str, int] | None = None
-    kommentin_loppu = 0
-    alku = 0
-    for raakarivi in teksti.splitlines(keepends=True):
-        rivi = raakarivi.rstrip("\r\n")
-        kommentissa = alku < kommentin_loppu
-        avaus = None if kommentissa or aita is not None else _aidan_avaus(rivi)
-        if aita is not None:
-            rivit.append(_Rivi(rivi, True, False))
-            aita = None if _sulkee_aidan(rivi, aita) else aita
-        elif avaus is not None:
-            rivit.append(_Rivi(rivi, True, False))
-            aita = avaus
-        else:
-            rivit.append(_Rivi(rivi, False, kommentissa))
-            kommentin_loppu = _kommentin_loppu(teksti, max(alku, kommentin_loppu), alku + len(rivi), kommentin_loppu)
-        alku += len(raakarivi)
-    return rivit
+def _jaa(kortin_teksti: str) -> tuple[list[str], list[str]]:
+    """Kortin alkuosan ja rungon rivit. Rivinvaihtoja ovat vain LF, CRLF ja CR, kuten Markdownissa."""
+    teksti = unicodedata.normalize("NFC", kortin_teksti).lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+    rivit = teksti.split("\n")
+    ensimmainen = True
+    for indeksi, rivi in enumerate(rivit):
+        if not rivi.strip():
+            continue
+        if _paattaa_alkuosan(rivi, kortin_otsikko=ensimmainen):
+            return rivit[:indeksi], rivit[indeksi:]
+        ensimmainen = False
+    return rivit, []
 
 
 def _ehdokas(avain: str) -> re.Pattern[str]:
-    """Rivi, joka näyttää avaimen metariviltä missä tahansa muodossa: luettelomerkki tai korostus ennen avainta."""
+    """Rivi, joka näyttää avaimen metariviltä missä tahansa muodossa; ryhmä 1 on arvo kaksoispisteen jälkeen."""
     alku = rf"(?:{LUETTELOMERKKI}\s*{RUUTU}{KOROSTUS}*|{KOROSTUS}+)"
-    return re.compile(rf"^\s*{alku}\s*{re.escape(avain)}\s*{KOROSTUS}*\s*:", re.IGNORECASE)
+    return re.compile(rf"^\s*{alku}\s*{re.escape(avain)}\s*{KOROSTUS}*\s*:(.*)$", re.IGNORECASE)
 
 
 def _kanoninen(avain: str) -> re.Pattern[str]:
@@ -113,28 +75,36 @@ def _kanoninen(avain: str) -> re.Pattern[str]:
 
 
 def lue_kentta(kortin_teksti: str, avain: str) -> str | None:
-    """Rivin `- <avain>: <arvo>` normalisoitu arvo, tai None, jos riviä ei ole.
+    """Kortin alkuosan rivin `- <avain>: <arvo>` normalisoitu arvo, tai None, jos riviä ei ole.
 
-    Kaksi riviä, avaimen rivi muussa kuin hyväksytyssä muodossa tai HTML-kommentin sisällä on KorttiVirhe.
+    Kaksi riviä tai avaimen rivi muussa kuin hyväksytyssä muodossa on KorttiVirhe.
     """
     ehdokas, kanoninen = _ehdokas(avain), _kanoninen(avain)
     arvot: list[str] = []
-    for rivi in _rivit(kortin_teksti):
-        if rivi.koodilohkossa or ehdokas.match(rivi.teksti) is None:
+    for rivi in _jaa(kortin_teksti)[0]:
+        if ehdokas.match(rivi) is None:
             continue
-        if rivi.kommentissa:
-            raise KorttiVirhe(f"kortin rivi {rivi.teksti.strip()!r} on HTML-kommentin sisällä; poista se tai kommentti")
-        osuma = kanoninen.match(rivi.teksti)
+        osuma = kanoninen.match(rivi)
         if osuma is None:
-            raise KorttiVirhe(f"kortin rivi {rivi.teksti.strip()!r} ei ole muotoa '- {avain}: <arvo>' ylätason luettelorivinä")
+            raise KorttiVirhe(f"kortin rivi {rivi.strip()!r} ei ole muotoa '- {avain}: <arvo>' ylätason luettelorivinä")
         arvot.append(osuma.group(1))
     if len(arvot) > 1:
         raise KorttiVirhe(f"kortissa on {len(arvot)} riviä '- {avain}:'; rivejä saa olla yksi")
     return normalisoi(arvot[0]) if arvot else None
 
 
+def rungon_arvot(kortin_teksti: str, avain: str) -> list[str]:
+    """Kortin rungon (alkuosan jälkeisen tekstin) avainrivien normalisoidut arvot missä tahansa muodossa.
+
+    Runkoa ei lueta metariveiksi, mutta kutsuja voi näistä todeta, että metarivi on kirjoitettu väärään paikkaan.
+    """
+    ehdokas = _ehdokas(avain)
+    osumat = (ehdokas.match(rivi) for rivi in _jaa(kortin_teksti)[1])
+    return [normalisoi(re.sub(KOROSTUS, "", osuma.group(1))) for osuma in osumat if osuma is not None]
+
+
 def kortin_tila(kortin_teksti: str) -> str | None:
-    """Kortin tilarivin arvo, esimerkiksi `hyväksytty`, tai None, jos tilariviä ei ole."""
+    """Kortin tilarivin arvo, esimerkiksi `hyväksytty`, tai None, jos tilariviä ei ole kortin alkuosassa."""
     return lue_kentta(kortin_teksti, "Tila")
 
 

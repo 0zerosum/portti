@@ -8,10 +8,11 @@ virhe, eikä ajo käynnisty. Sallitut nimet ja tunnisteet ovat vain vakiossa SAL
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
-from portti.kortti import KorttiVirhe, lue_kentta, normalisoi
+from portti.kortti import KorttiVirhe, lue_kentta, normalisoi, rungon_arvot
 
 OPUS = "opus"
 FABLE = "fable"
@@ -26,6 +27,7 @@ LAHDE_OLETUS = "oletus"
 LAHDE_KORTTI = "kortti"
 LAHDE_KASIN = "käsin"
 LAHDE_ALKUPERAINEN = "alkuperäinen ajo"
+MALLIN_NAKOINEN = re.compile(r"^(?:claude|opus|fable|sonnet|haiku)")
 
 
 class MalliVirhe(ValueError):
@@ -56,11 +58,19 @@ def _valinta(nimi: str, lahde: str) -> Mallivalinta:
 
 
 def _kortin_malli(kortin_teksti: str) -> str | None:
-    """Kortin mallirivin sallittu nimi tai None, jos riviä ei ole. Kielletty tai tyhjä rivi on MalliVirhe."""
+    """Kortin mallirivin sallittu nimi tai None, jos riviä ei ole. Kielletty tai tyhjä rivi on MalliVirhe.
+
+    Mallirivi luetaan kortin alkuosasta. Jos kortin rungossa on rivi, jonka avain on Malli ja arvo mallin nimi
+    tai tunniste, ajo ei käynnisty: kielletty malli ei ohitu eikä hyväksytty jää huomaamatta väärän paikan takia.
+    """
     try:
         arvo = lue_kentta(kortin_teksti, "Malli")
     except KorttiVirhe as virhe:
         raise MalliVirhe(str(virhe)) from virhe
+    rungossa = [rivin_arvo for rivin_arvo in rungon_arvot(kortin_teksti, "Malli") if MALLIN_NAKOINEN.match(rivin_arvo)]
+    if rungossa:
+        raise MalliVirhe(f"mallirivi (arvo {rungossa[0]!r}) on kortin rungossa; sen pitää olla kortin alkuosassa ennen "
+                         "ensimmäistä väliotsikkoa, vaakaviivaa, koodilohkoa tai HTML:ää")
     return None if arvo is None else sallittu_nimi(arvo, LAHDE_KORTTI)
 
 
