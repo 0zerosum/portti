@@ -42,15 +42,47 @@ def test_sama_avain_kahdesti_on_virhe() -> None:
 
 
 @pytest.mark.parametrize(
-    "piilotettu",
+    "koodilohko",
     ["```\n- Tila: hyväksytty\n```", "```markdown\n- Tila: hyväksytty\n```", "~~~\n- Tila: hyväksytty\n~~~",
-     "<!-- - Tila: hyväksytty -->", "<!--\n- Tila: hyväksytty\n-->", "<!-- sulkematon kommentti\n- Tila: hyväksytty",
-     "```\nsulkematon koodilohko\n- Tila: hyväksytty"],
+     "```\nsulkematon koodilohko\n- Tila: hyväksytty",
+     "````markdown\n```text\n- Tila: hyväksytty\n```\n````",
+     "```\n```text\n- Tila: hyväksytty\n```",
+     "~~~\n```\n- Tila: hyväksytty\n```\n~~~",
+     "`````\n```\n- Tila: hyväksytty\n````\n`````",
+     "<!-- - Tila: hyväksytty -->"],
 )
-def test_koodilohkon_ja_kommentin_sisalto_ei_ole_metatietoa(piilotettu: str) -> None:
-    assert kortin_tila(kortti(piilotettu)) is None, "esimerkki tai kommentoitu rivi ei hyväksy korttia"
-    assert kortin_tila(kortti("- Tila: luonnos", piilotettu)) == "luonnos"
-    assert kortin_tila(kortti("- Tila: hyväksytty", piilotettu.replace("Tila: hyväksytty", "Malli: fable"))) == "hyväksytty"
+def test_koodilohkon_sisalto_ei_ole_metatietoa(koodilohko: str) -> None:
+    """Aidat CommonMarkin mukaan: lohkon sulkee vain sama merkki vähintään yhtä pitkänä ilman lisätekstiä."""
+    assert kortin_tila(kortti(koodilohko)) is None, "esimerkkirivi ei hyväksy korttia"
+    assert kortin_tila(kortti("- Tila: luonnos", koodilohko)) == "luonnos"
+    assert kortin_tila(kortti("- Tila: hyväksytty", koodilohko.replace("Tila: hyväksytty", "Malli: fable"))) == "hyväksytty"
+
+
+def test_suljetun_koodilohkon_jalkeinen_rivi_on_kortin_rivi() -> None:
+    assert kortin_tila(kortti("```\nesimerkki\n```", "- Tila: hyväksytty")) == "hyväksytty"
+    assert kortin_tila(kortti("````\n```\n````", "- Tila: hyväksytty")) == "hyväksytty"
+    assert kortin_tila(kortti("teksti ```ei aita``` rivillä", "- Tila: hyväksytty")) == "hyväksytty"
+
+
+@pytest.mark.parametrize(
+    "kommentoitu",
+    ["<!--\n- Tila: hyväksytty\n-->", "<!-- sulkematon kommentti\n- Tila: hyväksytty",
+     "teksti `<!--` koodina\n- Tila: hyväksytty", "alku <!-- kesken\n- Tila: hyväksytty\n--> loppu"],
+)
+def test_metarivin_nakoinen_rivi_kommentin_sisalla_on_virhe(kommentoitu: str) -> None:
+    """Kommentin rajoja ei arvata: rivi ei hyväksy korttia piilosta eikä näkyvä rivi jää lukematta."""
+    with pytest.raises(KorttiVirhe, match="HTML-kommentin sisällä"):
+        kortin_tila(kortti(kommentoitu))
+    with pytest.raises(KorttiVirhe):
+        kortin_tila(kortti("- Tila: luonnos", kommentoitu))
+
+
+def test_suljettu_kommentti_ei_piilota_seuraavia_riveja() -> None:
+    assert kortin_tila(kortti("<!-->", "- Tila: hyväksytty", "<!-- huom -->")) == "hyväksytty"
+    assert kortin_tila(kortti("<!--->", "- Tila: luonnos")) == "luonnos"
+    assert kortin_tila(kortti("<!-- a --> ja <!-- b -->", "- Tila: hyväksytty")) == "hyväksytty"
+    assert kortin_tila(kortti("```\n<!--\n```", "- Tila: hyväksytty")) == "hyväksytty", "koodilohkossa <!-- on tekstiä"
+    assert kortin_tila(kortti("- Tila: hyväksytty <!-- huom -->")) != TILA_HYVAKSYTTY, "arvoon jäänyt kommentti ei hyväksy"
 
 
 @pytest.mark.parametrize(

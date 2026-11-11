@@ -4,22 +4,27 @@ Moottori lukee kortista vain tilarivin ja mallirivin, esimerkiksi `- Tila: hyvä
 Metarivi on ylätason luettelorivi: `-` tai `*`, enintään kolme välilyöntiä sisennystä. Avain ei riipu
 kirjainkoosta, ja arvosta luetaan pois sulkuhuomautus (`opus (oletus; ...)` on `opus`).
 
-Aidattujen koodilohkojen ja HTML-kommenttien sisältö ei ole kortin metatietoa: sieltä ei lueta mitään.
-Rivi, joka näyttää saman avaimen metariviltä muussa muodossa (korostus, numerointi, muu luettelomerkki,
-tehtävälistan ruutu tai syvempi sisennys), on virhe eikä ohitu: kortin tilaa tai mallia ei arvata.
-Sama avain kahdesti on virhe. Kortin haara on `feature/<slug>`.
+Kortin tilaa tai mallia ei arvata:
+- Aidatun koodilohkon sisältö ei ole metatietoa. Aidat tulkitaan CommonMarkin mukaan: lohkon sulkee vain sama
+  merkki vähintään yhtä pitkänä ilman lisätekstiä, ja sulkematon lohko jatkuu kortin loppuun.
+- Rivi, joka näyttää saman avaimen metariviltä muussa muodossa (korostus, numerointi, muu luettelomerkki,
+  tehtävälistan ruutu tai syvempi sisennys) tai HTML-kommentin sisällä, on virhe eikä ohitu.
+- Sama avain kahdesti on virhe.
+Kortin haara on `feature/<slug>`.
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
+from dataclasses import dataclass
 
 SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 HAARAN_ETULIITE = "feature/"
 TILA_HYVAKSYTTY = "hyväksytty"
-HTML_KOMMENTTI = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
-AITA = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+AITA = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+KOMMENTIN_ALKU = "<!--"
+KOMMENTIN_LOPPU = "-->"
 LUETTELOMERKKI = r"(?:[-*+–—•]|\d+[.)])"
 KOROSTUS = r"[*_`]"
 RUUTU = r"(?:\[[ xX]?\]\s*)?"
@@ -29,25 +34,70 @@ class KorttiVirhe(ValueError):
     """Kortin metarivi on moniselitteinen tai väärässä muodossa."""
 
 
+@dataclass(frozen=True)
+class _Rivi:
+    teksti: str
+    koodilohkossa: bool
+    kommentissa: bool
+
+
 def normalisoi(arvo: str) -> str:
     """Arvo ilman sulkuhuomautusta, ympäröiviä välejä ja koodimerkkejä, pienaakkosin ja NFC-muodossa."""
     ilman_huomautusta = unicodedata.normalize("NFC", arvo).split("(", 1)[0]
     return ilman_huomautusta.strip().strip("`").strip().lower()
 
 
-def _metarivit(kortin_teksti: str) -> list[str]:
-    """Kortin rivit ilman HTML-kommentteja ja aidattuja koodilohkoja. Sulkematon lohko jatkuu kortin loppuun."""
-    rivit: list[str] = []
-    aita: str | None = None
-    for rivi in HTML_KOMMENTTI.sub("", unicodedata.normalize("NFC", kortin_teksti)).splitlines():
-        osuma = AITA.match(rivi)
-        merkki = osuma.group(1)[0] if osuma else None
-        if aita is None and merkki is None:
-            rivit.append(rivi)
-        elif aita is None:
-            aita = merkki
-        elif merkki == aita:
-            aita = None
+def _aidan_avaus(rivi: str) -> tuple[str, int] | None:
+    """Avaavan aidan merkki ja pituus, tai None. Gravisaidan lisätekstissä ei saa olla gravista."""
+    osuma = AITA.match(rivi)
+    if osuma is None or (osuma.group(1)[0] == "`" and "`" in osuma.group(2)):
+        return None
+    return osuma.group(1)[0], len(osuma.group(1))
+
+
+def _sulkee_aidan(rivi: str, aita: tuple[str, int]) -> bool:
+    osuma = AITA.match(rivi)
+    return osuma is not None and osuma.group(1)[0] == aita[0] and len(osuma.group(1)) >= aita[1] and not osuma.group(2).strip()
+
+
+def _kommentin_loppu(teksti: str, alku: int, rivin_loppu: int, nykyinen: int) -> int:
+    """Viimeisen tällä rivillä alkavan HTML-kommentin loppukohta; nykyinen, jos rivillä ei ala kommenttia.
+
+    Kommentti päättyy seuraavaan `-->` (myös `<!-->` ja `<!--->` ovat valmiita kommentteja) tai kortin loppuun.
+    """
+    loppu = nykyinen
+    kohta = teksti.find(KOMMENTIN_ALKU, alku, rivin_loppu)
+    while kohta != -1:
+        sulku = teksti.find(KOMMENTIN_LOPPU, kohta + 2)
+        loppu = len(teksti) if sulku == -1 else sulku + len(KOMMENTIN_LOPPU)
+        kohta = teksti.find(KOMMENTIN_ALKU, loppu, rivin_loppu)
+    return loppu
+
+
+def _rivit(kortin_teksti: str) -> list[_Rivi]:
+    """Kortin rivit ja tieto siitä, onko rivi aidatussa koodilohkossa tai alkaako se HTML-kommentin sisältä.
+
+    Koodilohkon sisällä `<!--` on tekstiä, ja kommentin sisällä aita ei avaa koodilohkoa.
+    """
+    teksti = unicodedata.normalize("NFC", kortin_teksti)
+    rivit: list[_Rivi] = []
+    aita: tuple[str, int] | None = None
+    kommentin_loppu = 0
+    alku = 0
+    for raakarivi in teksti.splitlines(keepends=True):
+        rivi = raakarivi.rstrip("\r\n")
+        kommentissa = alku < kommentin_loppu
+        avaus = None if kommentissa or aita is not None else _aidan_avaus(rivi)
+        if aita is not None:
+            rivit.append(_Rivi(rivi, True, False))
+            aita = None if _sulkee_aidan(rivi, aita) else aita
+        elif avaus is not None:
+            rivit.append(_Rivi(rivi, True, False))
+            aita = avaus
+        else:
+            rivit.append(_Rivi(rivi, False, kommentissa))
+            kommentin_loppu = _kommentin_loppu(teksti, max(alku, kommentin_loppu), alku + len(rivi), kommentin_loppu)
+        alku += len(raakarivi)
     return rivit
 
 
@@ -65,16 +115,18 @@ def _kanoninen(avain: str) -> re.Pattern[str]:
 def lue_kentta(kortin_teksti: str, avain: str) -> str | None:
     """Rivin `- <avain>: <arvo>` normalisoitu arvo, tai None, jos riviä ei ole.
 
-    Kaksi riviä, tai avaimen rivi muussa kuin hyväksytyssä muodossa, on KorttiVirhe.
+    Kaksi riviä, avaimen rivi muussa kuin hyväksytyssä muodossa tai HTML-kommentin sisällä on KorttiVirhe.
     """
     ehdokas, kanoninen = _ehdokas(avain), _kanoninen(avain)
     arvot: list[str] = []
-    for rivi in _metarivit(kortin_teksti):
-        if ehdokas.match(rivi) is None:
+    for rivi in _rivit(kortin_teksti):
+        if rivi.koodilohkossa or ehdokas.match(rivi.teksti) is None:
             continue
-        osuma = kanoninen.match(rivi)
+        if rivi.kommentissa:
+            raise KorttiVirhe(f"kortin rivi {rivi.teksti.strip()!r} on HTML-kommentin sisällä; poista se tai kommentti")
+        osuma = kanoninen.match(rivi.teksti)
         if osuma is None:
-            raise KorttiVirhe(f"kortin rivi {rivi.strip()!r} ei ole muotoa '- {avain}: <arvo>' ylätason luettelorivinä")
+            raise KorttiVirhe(f"kortin rivi {rivi.teksti.strip()!r} ei ole muotoa '- {avain}: <arvo>' ylätason luettelorivinä")
         arvot.append(osuma.group(1))
     if len(arvot) > 1:
         raise KorttiVirhe(f"kortissa on {len(arvot)} riviä '- {avain}:'; rivejä saa olla yksi")

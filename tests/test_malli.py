@@ -42,10 +42,21 @@ def test_mallirivi_vaarassa_muodossa_estaa_ajon(rivi: str) -> None:
         valitse_malli(kortti(rivi), kasin="opus")
 
 
-@pytest.mark.parametrize("piilotettu", ["```\n- Malli: fable\n```", "<!-- - Malli: fable -->", "<!--\n- Malli: sonnet\n-->"])
-def test_koodilohkon_tai_kommentin_mallirivi_ei_valitse_mallia(piilotettu: str) -> None:
-    valinta = valitse_malli(kortti(piilotettu))
+@pytest.mark.parametrize(
+    "koodilohko",
+    ["```\n- Malli: fable\n```", "<!-- - Malli: fable -->", "````markdown\n```text\n- Malli: fable\n```\n````",
+     "```\n```text\n- Malli: sonnet\n```"],
+)
+def test_koodilohkon_mallirivi_ei_valitse_mallia(koodilohko: str) -> None:
+    valinta = valitse_malli(kortti(koodilohko))
     assert (valinta.nimi, valinta.lahde) == ("opus", LAHDE_OLETUS)
+
+
+def test_kommentti_ei_piilota_eika_tuo_mallirivia() -> None:
+    with pytest.raises(MalliVirhe, match="HTML-kommentin sisällä"):
+        valitse_malli(kortti("<!--", "- Malli: fable", "-->"))
+    with pytest.raises(MalliVirhe, match="sonnet"):
+        valitse_malli(kortti("<!-->", "- Malli: sonnet", "<!-- huom -->")), "näkyvä kielletty malli ei jää lukematta"
 
 
 def test_sallitut_mallit_ovat_vain_opus_ja_fable() -> None:
