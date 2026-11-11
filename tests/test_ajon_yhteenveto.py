@@ -71,20 +71,27 @@ def test_versiopaate_sallitun_tunnisteen_perassa_kelpaa(tmp_path: Path) -> None:
     kaytto = {"claude-opus-5-5-20260601": OPUKSEN_KAYTTO, "claude-fable-5-1[1m]": {"inputTokens": 1, "outputTokens": 1}}
     koodi, virhe, _, _ = aja(tmp_path, suoritustiedosto(tmp_path, kaytto))
     assert koodi == 0 and virhe == ""
-    vanhempi = {"claude-opus-5": OPUKSEN_KAYTTO}
-    assert aja(tmp_path, suoritustiedosto(tmp_path, vanhempi))[0] == 1, "vanhempi Opus ei ole sallittu tunniste"
+    assert aja(tmp_path, suoritustiedosto(tmp_path, {"claude-opus-5-5-20260601[1m]": OPUKSEN_KAYTTO}))[0] == 0
+    for muu in ("claude-opus-5", "claude-opus-5-5-x", "claude-opus-5-50", "claude-opus-5-5-2026", "claude-opus-5-5[2m]"):
+        assert aja(tmp_path, suoritustiedosto(tmp_path, {muu: OPUKSEN_KAYTTO}))[0] == 1, f"{muu} ei ole sallittu tunniste"
 
 
-def test_puuttuva_tai_rikkinainen_suoritustiedosto_kirjataan(tmp_path: Path) -> None:
-    koodi, _, yhteenveto, kuvaus = aja(tmp_path, tmp_path / "ei-ole.json", "Kuvaus.\n")
-    assert koodi == 0 and "suoritustiedostoa ei ole" in yhteenveto
+def test_puuttuva_tai_rikkinainen_suoritustiedosto_kirjataan_ja_kaataa(tmp_path: Path) -> None:
+    """Jos käytettyjä malleja ei voi todentaa, tarkistus ei mene läpi: tieto ei puutu hiljaa."""
+    koodi, virhe, yhteenveto, kuvaus = aja(tmp_path, tmp_path / "ei-ole.json", "Kuvaus.\n")
+    assert koodi == 1 and "suoritustiedostoa ei ole" in yhteenveto
+    assert "::error::Käytettyjä malleja ei voitu todentaa" in virhe and "Käytettyjä malleja ei voitu todentaa" in yhteenveto
     assert kuvaus is not None and f"| {OPUS} | oletus | ei tietoa | ei tietoa | ei tietoa | ei tietoa | ei tietoa |" in kuvaus
     rikki = tmp_path / "rikki.json"
     rikki.write_text("{ei jsonia", encoding="utf-8")
-    assert "suoritustiedostoa ei voitu lukea" in aja(tmp_path, rikki)[2]
+    koodi_rikki, _, yhteenveto_rikki, _ = aja(tmp_path, rikki)
+    assert koodi_rikki == 1 and "suoritustiedostoa ei voitu lukea" in yhteenveto_rikki
     ilman_tulosta = tmp_path / "ilman.json"
     ilman_tulosta.write_text('[{"type": "system"}]', encoding="utf-8")
-    assert "ei ole tulosviestiä" in aja(tmp_path, ilman_tulosta)[2]
+    koodi_ilman, _, yhteenveto_ilman, _ = aja(tmp_path, ilman_tulosta)
+    assert koodi_ilman == 1 and "ei ole tulosviestiä" in yhteenveto_ilman
+    koodi_tyhja, virhe_tyhja, _, _ = aja(tmp_path, suoritustiedosto(tmp_path, {}))
+    assert koodi_tyhja == 1 and "ei voitu todentaa" in virhe_tyhja, "tulosviesti ilman mallikohtaista käyttöä ei kelpaa"
 
 
 def test_tokenit_yhteiskentasta_kun_mallikohtaiset_puuttuvat(tmp_path: Path) -> None:

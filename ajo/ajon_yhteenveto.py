@@ -2,13 +2,15 @@
 
 Erillinen komponentti, ei osa portti-pakettia: ajetaan `python -I` kuluttajan ajossa. Vain vakiokirjasto.
 Kirjoittaa yhteenvedon työnkulun yhteenvetoon ja lisää rivin PR:n kuvauksen merkittyyn lohkoon. Palauttaa 1,
-jos ajo käytti mallia, joka ei ole sallittujen tunnisteiden joukossa: tarkistus havaitsee, ei estä.
+jos ajo käytti mallia, joka ei ole sallittujen tunnisteiden joukossa, tai jos käytettyjä malleja ei voitu
+todentaa (suoritustiedosto, tulosviesti tai mallikohtainen käyttö puuttuu). Tarkistus havaitsee, ei estä.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,7 @@ TAULUKON_OTSIKKO = (
 EI_TIETOA = "ei tietoa"
 SISAAN_AVAIMET = ("inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")
 SISAAN_AVAIMET_YHTEENSA = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+SALLITTU_PAATE = re.compile(r"(?:-\d{8})?(?:\[1m\])?")
 
 
 def lue_tulos(suoritus: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -46,9 +49,22 @@ def kaytetyt_mallit(tulos: dict[str, Any] | None) -> list[str]:
     return sorted(kaytto) if isinstance(kaytto, dict) else []
 
 
+def on_sallittu(malli: str, sallitut: list[str]) -> bool:
+    """Sallittu tunniste sellaisenaan tai päivämääräpäätteellä (-VVVVKKPP) ja kontekstimerkinnällä ([1m])."""
+    return any(malli.startswith(tunniste) and SALLITTU_PAATE.fullmatch(malli[len(tunniste):]) is not None
+               for tunniste in sallitut)
+
+
 def luvattomat_mallit(mallit: list[str], sallitut: list[str]) -> list[str]:
-    """Mallit, jotka eivät ala millään sallitulla tunnisteella (tunnisteen perässä saa olla versiopääte)."""
-    return [malli for malli in mallit if not any(malli.startswith(tunniste) for tunniste in sallitut)]
+    return [malli for malli in mallit if not on_sallittu(malli, sallitut)]
+
+
+def mallivirheet(mallit: list[str], sallitut: list[str]) -> list[str]:
+    """Syyt, joiden takia ajo merkitään epäonnistuneeksi: malleja ei voitu todentaa, tai jokin niistä on luvaton."""
+    if not mallit:
+        return ["Käytettyjä malleja ei voitu todentaa: suoritustiedosto tai sen mallikohtainen käyttö puuttuu"]
+    luvattomat = luvattomat_mallit(mallit, sallitut)
+    return [f"Ajo käytti mallia, joka ei ole sallittu: {', '.join(luvattomat)}"] if luvattomat else []
 
 
 def _summa(lahteet: list[dict[str, Any]], avaimet: tuple[str, ...]) -> int | None:
@@ -118,19 +134,19 @@ def main(argv: list[str] | None = None) -> int:
     tulos, huomautus = lue_tulos(argumentit.suoritus)
     rivi = taulukon_rivi(argumentit, tulos)
     sallitut = [tunniste.strip() for tunniste in argumentit.sallitut.split(",") if tunniste.strip()]
-    luvattomat = luvattomat_mallit(kaytetyt_mallit(tulos), sallitut)
+    virheet = mallivirheet(kaytetyt_mallit(tulos), sallitut)
     osat = ["## Kortti-ajo", "", *TAULUKON_OTSIKKO[2:], rivi, ""]
     osat += [f"Huomautus: {huomautus}.", ""] if huomautus else []
-    osat += [f"Ajo käytti mallia, joka ei ole sallittu: {', '.join(luvattomat)}.", ""] if luvattomat else []
+    for virhe in virheet:
+        osat += [f"{virhe}.", ""]
     with argumentit.yhteenveto.open("a", encoding="utf-8") as tiedosto:
         tiedosto.write("\n".join(osat) + "\n")
     if argumentit.kuvaus is not None and argumentit.kuvaus_ulos is not None:
         vanha = argumentit.kuvaus.read_text(encoding="utf-8") if argumentit.kuvaus.is_file() else ""
         argumentit.kuvaus_ulos.write_text(paivita_kuvaus(vanha, rivi), encoding="utf-8")
-    if luvattomat:
-        print(f"::error::Kortti-ajo käytti mallia, joka ei ole sallittu: {', '.join(luvattomat)}", file=sys.stderr)
-        return 1
-    return 0
+    for virhe in virheet:
+        print(f"::error::{virhe}", file=sys.stderr)
+    return 1 if virheet else 0
 
 
 if __name__ == "__main__":
