@@ -1,0 +1,205 @@
+"""Ohjauksen komennot: `ohjaus-edellinen` (edellisen päätöksen luku PR:n kommentista), `ohjaa` (päätös ilman
+verkkoa), `ohjaus-toteuta` (päätöksen soveltaminen gh:lla) ja `ohjaus-ajo-paattyi` (tulokseton korjauskierros
+CTO:lle)."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from portti.evidence import lue_evidence
+from portti.github_api import GitHubApi
+from portti.ohjaus import (
+    LABEL_AGENTTI,
+    TESTIEN_TILAT,
+    OhjausSyote,
+    lue_paatos,
+    odottaa_korjauskierrosta,
+    paata,
+    paatos_keskeytyneelle_ajolle,
+    paatos_sanakirjaksi,
+    paatos_tekstiksi,
+)
+from portti.ohjaus_kommentti import OHJAUKSEN_KOMMENTOIJA
+from portti.ohjaus_toteutus import Asetukset, Katselmoijat, KorjausAjo, Toteutus, edellinen_paatos, toteuta
+
+
+def _lisaa_kommentoija(komento: argparse.ArgumentParser) -> None:
+    komento.add_argument("--kommentoija", default=OHJAUKSEN_KOMMENTOIJA,
+                         help="tunnus, jonka kirjoittama ohjauskommentti luetaan ja päivitetään; muiden kommentit ohitetaan")
+
+
+def _lisaa_edellinen(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    komento = alikomennot.add_parser("ohjaus-edellinen", help="lue PR:n edellinen ohjauspäätös ohjauskommentin konedatasta")
+    komento.add_argument("--repo", required=True)
+    komento.add_argument("--pr", type=int, required=True)
+    komento.add_argument("--tuloste", type=Path, default=None, help="kohdetiedosto (oletus stdout); null, jos päätöstä ei ole")
+    _lisaa_kommentoija(komento)
+
+
+def _lisaa_ohjaa(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    komento = alikomennot.add_parser("ohjaa", help="päätä PR:n ohjaus evidencestä, testien tilasta ja muuttuneista poluista")
+    komento.add_argument("--head", required=True, help="PR:n head-sha")
+    komento.add_argument("--testit", choices=TESTIEN_TILAT, required=True, help="testityönkulun lopputulos PR:n headille")
+    komento.add_argument("--evidence", type=Path, default=None, help="Portti-ajon evidence-JSON; puuttuva tiedosto on puute")
+    komento.add_argument("--polut", type=Path, required=True, help="PR:n muuttuneet polut, yksi riviä kohden")
+    komento.add_argument("--polut-vajaat", action="store_true",
+                         help="polkulista ei kata kaikkia PR:n tiedostoja (GitHub palauttaa enintään 3000): PR menee CTO:lle")
+    komento.add_argument("--labelit", default="", help="PR:n nykyiset labelit pilkuilla eroteltuna")
+    komento.add_argument("--forkki", action="store_true", help="PR tulee forkista: korjauskierrosta ei käynnistetä")
+    komento.add_argument("--haara", default="", help="PR:n haara; kortin slug luetaan muodosta feature/<slug>")
+    komento.add_argument("--edellinen", type=Path, default=None,
+                         help="edellinen päätös (ohjaus-edellinen): tälle headille jo käynnistetty kierros ei käynnisty uudelleen")
+    komento.add_argument("--paatos", type=Path, default=None, help="päätös-JSONin kohdetiedosto (oletus stdout)")
+
+
+def _lisaa_toteuta(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    komento = alikomennot.add_parser("ohjaus-toteuta", help="sovella päätös: labelit, katselmoija, kommentti, kortti-ajo")
+    komento.add_argument("--paatos", type=Path, required=True)
+    komento.add_argument("--repo", required=True)
+    komento.add_argument("--pr", type=int, required=True)
+    komento.add_argument("--katselmoija-cto", default="", help="CTO:n GitHub-tunnus (kuluttajarepon muuttuja)")
+    komento.add_argument("--katselmoija-t1", default="", help="T1-katselmoijan GitHub-tunnus; puuttuessa käytetään CTO:ta")
+    komento.add_argument("--kortti-ajo", default="", help="kuluttajan kortti-ajon työnkulkutiedosto korjauskierrosta varten")
+    komento.add_argument("--oletushaara", default="main", help="haara, jolta kortti-ajo käynnistetään")
+    _lisaa_kommentoija(komento)
+
+
+def _lisaa_ajo_paattyi(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    komento = alikomennot.add_parser(
+        "ohjaus-ajo-paattyi",
+        help="korjauskierroksen kortti-ajon jälkeen: vie PR CTO:lle, jos se odottaa yhä samaa kierrosta samalla headilla")
+    komento.add_argument("--repo", required=True)
+    komento.add_argument("--pr", type=int, required=True)
+    komento.add_argument("--haara", required=True, help="kortin haara feature/<slug>; PR:n pitää olla tästä haarasta")
+    komento.add_argument("--syy", required=True, help="ajon tulos ja osoite ohjauskommenttiin")
+    komento.add_argument("--katselmoija-cto", default="", help="CTO:n GitHub-tunnus (kuluttajarepon muuttuja)")
+    _lisaa_kommentoija(komento)
+
+
+def lisaa_ohjaus_komennot(alikomennot: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    _lisaa_edellinen(alikomennot)
+    _lisaa_ohjaa(alikomennot)
+    _lisaa_toteuta(alikomennot)
+    _lisaa_ajo_paattyi(alikomennot)
+
+
+def _lue_evidence_tai_puute(polku: Path | None) -> tuple[dict[str, Any] | None, str | None]:
+    """Puuttuva tai kelvoton evidence ei kaada ohjausta: se on fail-closed-syy, joka kirjataan perusteluun."""
+    if polku is None:
+        return None, "evidence puuttuu (ei annettu)"
+    if not polku.exists():
+        return None, f"evidence puuttuu ({polku.name} ei ole)"
+    try:
+        return lue_evidence(polku), None
+    except (ValueError, OSError) as virhe:
+        return None, f"evidence ei kelpaa: {virhe}"
+
+
+def _lue_edellinen(polku: Path | None) -> dict[str, Any] | None:
+    """Edellinen päätös tai None. Annettu mutta puuttuva tai kelvoton tiedosto kaataa komennon: sitä ei arvata."""
+    if polku is None:
+        return None
+    if not polku.exists():
+        raise ValueError(f"{polku}: edellisen päätöksen tiedostoa ei ole")
+    sisalto = json.loads(polku.read_text(encoding="utf-8"))
+    if sisalto is not None and not isinstance(sisalto, dict):
+        raise ValueError(f"{polku}: edellisen päätöksen on oltava JSON-objekti tai null")
+    return sisalto
+
+
+def _lue_polut(polku: Path) -> tuple[str, ...]:
+    return tuple(rivi.strip() for rivi in polku.read_text(encoding="utf-8").splitlines() if rivi.strip())
+
+
+def _labelit(teksti: str) -> tuple[str, ...]:
+    return tuple(sorted({osa.strip() for osa in teksti.split(",") if osa.strip()}))
+
+
+def komento_ohjaus_edellinen(argumentit: argparse.Namespace, api: GitHubApi) -> int:
+    edellinen = edellinen_paatos(api, argumentit.repo, argumentit.pr, argumentit.kommentoija)
+    teksti = json.dumps(edellinen, ensure_ascii=False, sort_keys=True) + "\n"
+    if argumentit.tuloste is not None:
+        argumentit.tuloste.write_text(teksti, encoding="utf-8")
+    else:
+        print(teksti, end="")
+    kuvaus = "ei aiempaa päätöstä" if edellinen is None else f"{edellinen.get('toimenpide')} headille {edellinen.get('head_sha')}"
+    print(f"portti: ohjaus-edellinen: {kuvaus}", file=sys.stderr)
+    return 0
+
+
+def komento_ohjaa(argumentit: argparse.Namespace) -> int:
+    evidence, huomautus = _lue_evidence_tai_puute(argumentit.evidence)
+    syote = OhjausSyote(
+        pr_head_sha=argumentit.head,
+        testit=argumentit.testit,
+        evidence=evidence,
+        muuttuneet_polut=_lue_polut(argumentit.polut),
+        labelit=_labelit(argumentit.labelit),
+        forkki=argumentit.forkki,
+        evidence_huomautus=huomautus,
+        edellinen=_lue_edellinen(argumentit.edellinen),
+        haara=argumentit.haara or None,
+        polut_vajaat=argumentit.polut_vajaat,
+    )
+    paatos = paatos_sanakirjaksi(syote, paata(syote))
+    teksti = paatos_tekstiksi(paatos)
+    if argumentit.paatos is not None:
+        argumentit.paatos.write_text(teksti, encoding="utf-8")
+    else:
+        print(teksti, end="")
+    print(f"portti: ohjaus {paatos['toimenpide']}: {paatos['perustelu']}", file=sys.stderr)
+    return 0
+
+
+def komento_ohjaus_toteuta(argumentit: argparse.Namespace, api: GitHubApi) -> int:
+    paatos = lue_paatos(argumentit.paatos)
+    katselmoijat = Katselmoijat(argumentit.katselmoija_cto or None, argumentit.katselmoija_t1 or None)
+    korjausajo = KorjausAjo(argumentit.kortti_ajo, argumentit.oletushaara) if argumentit.kortti_ajo else None
+    asetukset = Asetukset(katselmoijat, korjausajo, argumentit.kommentoija)
+    return _tulosta_toteutus("ohjaus-toteuta", toteuta(api, argumentit.repo, argumentit.pr, paatos, asetukset))
+
+
+def _ei_korjattava_pr(pr: dict[str, Any], haara: str) -> str | None:
+    """Syy, miksi PR ei ole tämän kortin avoin agentin PR, tai None."""
+    labelit = {str(label.get("name", "")) for label in pr.get("labels") or []}
+    if pr.get("state") != "OPEN":
+        return f"PR ei ole avoin ({pr.get('state')})"
+    if pr.get("headRefName") != haara or pr.get("isCrossRepository"):
+        return f"PR ei ole tämän repon haarasta {haara}"
+    if LABEL_AGENTTI not in labelit:
+        return "PR:llä ei ole labelia agentti"
+    return None
+
+
+def komento_ohjaus_ajo_paattyi(argumentit: argparse.Namespace, api: GitHubApi) -> int:
+    """Korjauskierroksen kortti-ajo päättyi: PR ei saa jäädä tilaan korjauskierros ilman ihmistä.
+
+    Jos PR on tämän kortin avoin agentin PR ja odottaa yhä samaa kierrosta samalla headilla (ajo epäonnistui,
+    peruuntui tai ei tuottanut committia), se viedään CTO:lle ja komento palauttaa 1. Muuten ei toimenpiteitä:
+    uuden headin arvioi ohjaus, eikä muussa tilassa olevaan PR:ään kosketa.
+    """
+    pr = api.hae_pr(argumentit.repo, argumentit.pr)
+    head = str(pr.get("headRefOid") or "")
+    este = _ei_korjattava_pr(pr, argumentit.haara)
+    if este is None and not odottaa_korjauskierrosta(
+            edellinen_paatos(api, argumentit.repo, argumentit.pr, argumentit.kommentoija), head):
+        este = "PR ei odota korjauskierrosta tälle headille"
+    if este is not None:
+        print(f"portti: ohjaus-ajo-paattyi: ei toimenpiteitä: {este}", file=sys.stderr)
+        return 0
+    labelit = tuple(sorted(str(label.get("name", "")) for label in pr.get("labels") or []))
+    syy = f"korjauskierroksen kortti-ajo ei tuottanut uutta committia ({argumentit.syy})"
+    asetukset = Asetukset(Katselmoijat(argumentit.katselmoija_cto or None, None), None, argumentit.kommentoija)
+    _tulosta_toteutus("ohjaus-ajo-paattyi", toteuta(api, argumentit.repo, argumentit.pr,
+                                                    paatos_keskeytyneelle_ajolle(head, labelit, syy), asetukset))
+    return 1
+
+
+def _tulosta_toteutus(komento: str, tulos: Toteutus) -> int:
+    for toimi in tulos.toimet:
+        print(f"portti: {komento}: {toimi}", file=sys.stderr)
+    return 1 if tulos.virheita else 0

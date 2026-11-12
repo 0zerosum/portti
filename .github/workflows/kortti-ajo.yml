@@ -1,0 +1,365 @@
+name: Kortti-ajo (uudelleenkäytettävä)
+
+# Rakentaa hyväksytyn kortin PR:ksi yrityksen API-avaimella ilman ihmisen istuntoa, tai korjaa agentin PR:n
+# ohjauksen korjauskierroksessa. Kuluttaja kutsuu tätä omasta .github/workflows/kortti-ajo.yml:stään
+# (on: workflow_dispatch). Malli: mallit/kortti-ajo.yml. Prompti on ajo/prompti.md tästä samasta shasta.
+#
+# Kaksi jobia:
+# 1. kortti-ajo: ennen kielimallia työnkulku tarkistaa, että kortin tila on hyväksytty oletushaarassa, että
+#    kortin haaraa feature/<slug> ei ole (uusi ajo) tai että korjattava PR on agentin PR samalla mallilla
+#    (korjauskierros), ja että `portti malli` palauttaa sallitun mallin (mallipäätös 6.11.2026). Malli annetaan
+#    agentille vain tuon askeleen tulosteesta. Muuten ajo epäonnistuu näkyvästi.
+# 2. jalkitarkistus (kortti-ajo-jalkitarkistus.yml samasta shasta): agentti on voinut ajaa ensimmäisen jobin
+#    runnerilla mitä tahansa koodia (testikomennot), joten tarkistukset, joilla on työnkulun token, ajetaan omassa
+#    jobissaan puhtaalla runnerilla ja tiedot luetaan GitHubin API:sta. Tulokseton korjauskierros viedään CTO:lle
+#    (portti ohjaus-ajo-paattyi).
+#
+# Pinnaus: anthropics/claude-code-action v1.0.268 (julkaistu 2026-11-04), sha c0949c50a78c1ec8ce2647db36629b870e715d0c.
+# Pushit ja PR:n avaus tehdään Claude GitHub Appin tokenilla (OIDC-vaihto, id-token: write), jotta PR
+# käynnistää kuluttajan Testit- ja Portti-työnkulut. GITHUB_TOKENia ei käytetä pushiin: checkout ei tallenna
+# sitä gitin asetuksiin, ja action asettaa originiin App-tokenin.
+#
+# Main-vahti ja käytettyjen mallien tarkistus havaitsevat, mutta eivät estä: ilmaistason yksityisrepossa
+# ei ole haarasuojausta, ja ajon tulos (mallit, kesto, kulu) on peräisin agentin runnerilta.
+
+on:
+  workflow_call:
+    inputs:
+      kortti:
+        description: Kortin slug. Kortti on kuluttajarepon tiedosto kortit/<slug>.md ja työ tehdään haaraan feature/<slug>.
+        type: string
+        required: true
+      korjaa_pr:
+        description: Korjauskierros annetulle PR-numerolle (tyhjä = uusi kortti). Ohjaus täyttää tämän.
+        type: string
+        default: ""
+      malli_kasin:
+        description: >-
+          Käsin valittu malli (opus tai fable). Hyväksytään vain, kun ihminen käynnisti ajon käsin
+          (workflow_dispatch), ei korjauskierroksessa. Tyhjä = kortin rivi "- Malli:" tai oletus opus.
+        type: string
+        default: ""
+      alkuperainen_malli:
+        description: >-
+          Korjauskierros, alkuperäisen ajon malli. Ohjaus täyttää tämän PR:n labelista malli-<nimi>, ja
+          työnkulku vaatii, että arvo vastaa PR:n labelia.
+        type: string
+        default: ""
+      max_turns:
+        description: Agentin kierrosten yläraja (claude --max-turns).
+        type: number
+        required: true
+      testikomennot:
+        description: >-
+          Repon asennus- ja testikomennot, yksi riviä kohden, asennus ensin. Vain nämä komennot sallitaan
+          agentille sanatarkasti. Ei lainaus-, ohjaus-, erotin- eikä jokerimerkkejä.
+        type: string
+        required: true
+      kortin_tilarivit:
+        description: >-
+          true = agentti päivittää kortin tilarivin haarassa (työn alla, PR). false = feature-PR ei muuta
+          korttia, kun repon prosessissa kortin tila päätellään.
+        type: boolean
+        default: true
+      saantolohko_polku:
+        description: Kuluttajan yhteinen sääntölohko, joka liitetään promptiin sanatarkasti. Puuttuminen kaataa ajon.
+        type: string
+        default: .portti/saannot.md
+      aikakatkaisu_min:
+        type: number
+        default: 60
+      python_versio:
+        type: string
+        default: "3.11"
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+
+jobs:
+  kortti-ajo:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.aikakatkaisu_min }}
+    # Yksi ajo kerrallaan repoa kohden. Ryhmä määritellään vain tässä jobissa (ks. ohjaus.yml). Jonossa voi olla
+    # yksi odottava ajo: uudempi käynnistys peruu odottavan, ja jälkitarkistus vie perutun korjauskierroksen CTO:lle.
+    concurrency:
+      group: kortti-ajo-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write # Claude GitHub Appin tokenin OIDC-vaihto
+      actions: read # actionin additional_permissions: agentti lukee kaatuneiden testien lokit
+    outputs:
+      malli: ${{ steps.portti.outputs.malli }}
+      nimi: ${{ steps.portti.outputs.nimi }}
+      lahde: ${{ steps.portti.outputs.lahde }}
+      sallitut: ${{ steps.portti.outputs.sallitut }}
+      vahti_sha: ${{ steps.vahti.outputs.sha }}
+      agentti: ${{ steps.agentti.outcome }}
+      lopputulos: ${{ steps.agentti.outputs.conclusion }}
+    env:
+      REPO: ${{ github.repository }}
+      OLETUSHAARA: ${{ github.event.repository.default_branch }}
+      KORTTI: ${{ inputs.kortti }}
+      HAARA: feature/${{ inputs.kortti }}
+      KORJAA_PR: ${{ inputs.korjaa_pr }}
+      PYTHONSAFEPATH: "1"
+      # Agentin aliprosessien (Bash, testit) ympäristöstä poistetaan API-avain parhaan kyvyn mukaan. Tämä
+      # pienentää vuotoriskiä, mutta ei poista sitä. GitHub-tokenit säilyvät, jotta git ja gh toimivat.
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+    steps:
+      - name: Tarkista syötteet ja budjetti
+        id: syotteet
+        env:
+          BUDJETTI: ${{ vars.PORTTI_AJO_BUDJETTI_USD }}
+          MAX_TURNS: ${{ inputs.max_turns }}
+          MOOTTORIN_REPO: ${{ job.workflow_repository }}
+          MOOTTORIN_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          virhe() { echo "::error::$1"; exit 1; }
+          # Koko arvon täsmäys ([[ =~ ]]): rivikohtainen grep hyväksyisi monirivisen arvon, jonka yksi rivi kelpaa,
+          # ja loput rivit päätyisivät agentin komentoriville.
+          [ -n "$MOOTTORIN_REPO" ] && [ -n "$MOOTTORIN_SHA" ] || virhe "job.workflow_repository tai job.workflow_sha puuttuu; porttia ei voi hakea pinnatusta shasta"
+          [ -n "$BUDJETTI" ] || virhe "Muuttuja PORTTI_AJO_BUDJETTI_USD puuttuu; kortti-ajo ei käynnisty ilman budjettia"
+          [[ "$BUDJETTI" =~ ^[0-9]+(\.[0-9]+)?$ ]] || virhe "PORTTI_AJO_BUDJETTI_USD ei ole luku"
+          [[ "$MAX_TURNS" =~ ^[0-9]+$ ]] || virhe "max_turns ei ole kokonaisluku"
+          [[ "$KORTTI" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || virhe "Kortin slug ei kelpaa (sallittu: pienet kirjaimet, numerot, . _ -)"
+          [[ -z "$KORJAA_PR" || "$KORJAA_PR" =~ ^[0-9]+$ ]] || virhe "korjaa_pr ei ole numero"
+          {
+            echo "budjetti=$BUDJETTI"
+            echo "max_turns=$MAX_TURNS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Hae kuluttajarepo oletushaarasta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Hae portti pinnatusta shasta (moottori, prompti ja kokoaja)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: portti-moottori
+          persist-credentials: false
+
+      - name: Asenna Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ inputs.python_versio }}
+
+      - name: Asenna moottorin riippuvuudet
+        run: python -m pip install --quiet --disable-pip-version-check "pyyaml>=6.0,<7"
+
+      - name: Portti ennen kielimallia (kortin tila, haara, PR ja malli)
+        id: portti
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: ${{ github.workspace }}/portti-moottori
+          TAPAHTUMA: ${{ github.event_name }}
+          TOIMIJA: ${{ github.actor }}
+          KAYNNISTAJA: ${{ github.triggering_actor }}
+          MALLI_KASIN: ${{ inputs.malli_kasin }}
+          ALKUPERAINEN_MALLI: ${{ inputs.alkuperainen_malli }}
+        run: |
+          set -euo pipefail
+          virhe() { echo "::error::$1"; exit 1; }
+          kortti_polku="kortit/$KORTTI.md"
+          [ -f "$kortti_polku" ] || virhe "$kortti_polku puuttuu oletushaarasta"
+          python -m portti.cli kortin-tila --kortti "$kortti_polku" --vaadi hyväksytty > /dev/null \
+            || virhe "kortin $KORTTI tilarivi ei kelpaa tai tila ei ole hyväksytty oletushaarassa (syy yllä): ajo ei käynnisty"
+          haaroja="$(gh api "repos/$REPO/git/matching-refs/heads/$HAARA" \
+            | jq -r --arg ref "refs/heads/$HAARA" '[.[] | select(.ref == $ref)] | length')"
+          liput=()
+          pr_mallilabelit=""
+          if [ -z "$KORJAA_PR" ]; then
+            [ "$haaroja" = "0" ] || virhe "haara $HAARA on jo olemassa: korttia ei aloiteta toista kertaa"
+            [ -z "$ALKUPERAINEN_MALLI" ] || virhe "alkuperainen_malli kuuluu vain korjauskierrokseen"
+          else
+            [ "$haaroja" = "1" ] || virhe "korjauskierros: haaraa $HAARA ei ole"
+            [ -z "$MALLI_KASIN" ] || virhe "korjauskierros käyttää alkuperäisen ajon mallia: malli_kasin ei käy"
+            [ -n "$ALKUPERAINEN_MALLI" ] || virhe "korjauskierros vaatii alkuperäisen ajon mallin (alkuperainen_malli)"
+            pr_tiedot="$(gh pr view "$KORJAA_PR" --repo "$REPO" --json state,headRefName,isCrossRepository,labels)"
+            pr_tila="$(jq -r '"\(.state) \(.headRefName) \(.isCrossRepository)"' <<<"$pr_tiedot")"
+            [ "$pr_tila" = "OPEN $HAARA false" ] || virhe "korjauskierros: PR $KORJAA_PR ei ole avoin PR haarasta $HAARA ($pr_tila)"
+            jq -e '[.labels[].name] | index("agentti") != null' <<<"$pr_tiedot" > /dev/null \
+              || virhe "korjauskierros: PR $KORJAA_PR ei ole agentin PR (label agentti puuttuu)"
+            pr_mallilabelit="$(jq -r '[.labels[].name | select(startswith("malli-"))] | sort | join(",")' <<<"$pr_tiedot")"
+            liput+=(--alkuperainen "$ALKUPERAINEN_MALLI")
+          fi
+          if [ -n "$MALLI_KASIN" ]; then
+            # Käsin valittu malli vain, kun ihminen käynnisti ajon käsin: ei botti eikä toinen työnkulku.
+            [ "$TAPAHTUMA" = "workflow_dispatch" ] || virhe "malli_kasin hyväksytään vain käsin käynnistetyssä ajossa (tapahtuma $TAPAHTUMA)"
+            for tunnus in "$TOIMIJA" "$KAYNNISTAJA"; do
+              tyyppi="$(gh api "users/$tunnus" --jq .type 2>/dev/null || true)"
+              [ "$tyyppi" = "User" ] || virhe "malli_kasin hyväksytään vain ihmisen käynnistämässä ajossa (käynnistäjä $tunnus: ${tyyppi:-tuntematon})"
+            done
+            liput+=(--kasin "$MALLI_KASIN")
+          fi
+          valinta="$(python -m portti.cli malli --kortti "$kortti_polku" --json ${liput[@]+"${liput[@]}"})" \
+            || virhe "portti malli hylkäsi kortin mallin (syy yllä): ajo ei käynnisty"
+          nimi="$(echo "$valinta" | jq -r .nimi)"
+          tarkistaja="$(echo "$valinta" | jq -r .tarkistajan_malli)"
+          if [ -n "$KORJAA_PR" ] && [ "$pr_mallilabelit" != "malli-$nimi" ]; then
+            # Korjauskierros käyttää alkuperäisen ajon mallia: syötteen pitää vastata PR:n ainoaa malli-labelia.
+            virhe "korjauskierros: malli $nimi ei vastaa PR:n $KORJAA_PR labelia (${pr_mallilabelit:-malli-label puuttuu})"
+          fi
+          {
+            echo "malli=$(echo "$valinta" | jq -r .malli)"
+            echo "nimi=$nimi"
+            echo "lahde=$(echo "$valinta" | jq -r .lahde)"
+            echo "tarkistajan_malli=$tarkistaja"
+            echo "sallitut=$(echo "$valinta" | jq -r '.sallitut_tunnisteet | join(",")')"
+          } >> "$GITHUB_OUTPUT"
+          # Aliagentit pakotetaan tarkistajan malliin ja aliakset sonnet ja haiku ohjataan siihen:
+          # ajo ei käytä valittua mallia heikompaa mallia. Samat arvot annetaan actionille asetuksina.
+          {
+            echo "ANTHROPIC_DEFAULT_SONNET_MODEL=$tarkistaja"
+            echo "ANTHROPIC_DEFAULT_HAIKU_MODEL=$tarkistaja"
+            echo "CLAUDE_CODE_SUBAGENT_MODEL=$tarkistaja"
+            echo "CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1"
+            echo "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1"
+          } >> "$GITHUB_ENV"
+          echo "malli: $(echo "$valinta" | jq -r '"\(.malli) (\(.nimi), lähde: \(.lahde))"')"
+
+      - name: Tallenna oletushaaran sha (main-vahti)
+        id: vahti
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "sha=$(gh api "repos/$REPO/branches/$OLETUSHAARA" --jq .commit.sha)" >> "$GITHUB_OUTPUT"
+
+      - name: Varmista labelit agentti ja malli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MALLI_LABEL: malli-${{ steps.portti.outputs.nimi }}
+        run: |
+          set -euo pipefail
+          # Agentti avaa PR:n näillä labeleilla; PR:n luonti kaatuisi, jos labelia ei ole repossa.
+          labelit="$(gh label list --repo "$REPO" --limit 500 --json name --jq '.[].name')"
+          varmista() {
+            if ! printf '%s\n' "$labelit" | grep -x -F "$1" > /dev/null; then
+              gh label create "$1" --repo "$REPO" --color "$2" --description "$3" --force
+            fi
+          }
+          varmista agentti 5319e7 "Agentin avaama PR (portti-ohjaus)"
+          varmista "$MALLI_LABEL" 0366d6 "Kortti-ajon malli; korjauskierros käyttää samaa"
+
+      - name: Kokoa prompti, työkalulistat, aliagentti ja asetukset
+        id: prompti
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTIKOMENNOT: ${{ inputs.testikomennot }}
+          SAANNOT: ${{ inputs.saantolohko_polku }}
+          TILARIVIT: ${{ inputs.kortin_tilarivit }}
+          MALLI_LABEL: malli-${{ steps.portti.outputs.nimi }}
+          TARKISTAJAN_MALLI: ${{ steps.portti.outputs.tarkistajan_malli }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$SAANNOT" ]; then
+            echo "::error::sääntölohko $SAANNOT puuttuu; kortti-ajo ei käynnisty ilman sitä"
+            exit 1
+          fi
+          tulosteet="$RUNNER_TEMP/portti-ajo"
+          mkdir -p "$tulosteet"
+          liput=()
+          if [ -n "$KORJAA_PR" ]; then
+            # Agentti ei lue PR:n kommentteja itse: kuka tahansa voi kommentoida PR:ää. Kokoaja liittää promptiin
+            # vain portin ja ohjauksen omat kommentit (kirjoittaja github-actions[bot] ja tunniste).
+            gh api "repos/$REPO/issues/$KORJAA_PR/comments" --paginate --slurp > "$tulosteet/kommentit.json"
+            liput+=(--kommentit "$tulosteet/kommentit.json")
+          fi
+          python -I portti-moottori/ajo/kokoa_prompti.py --pohja portti-moottori/ajo/prompti.md \
+            --kortti "$KORTTI" --korjaa-pr "$KORJAA_PR" --oletushaara "$OLETUSHAARA" --repo "$REPO" \
+            --testikomennot "$TESTIKOMENNOT" --saannot "$SAANNOT" --malli-label "$MALLI_LABEL" \
+            --tarkistajan-malli "$TARKISTAJAN_MALLI" --tilarivit "$TILARIVIT" --tulosteet "$tulosteet" \
+            ${liput[@]+"${liput[@]}"}
+          # Satunnainen erotin: promptin sisältö (sääntölohko, kommentit) ei voi päättää tulostetta ennenaikaisesti.
+          erotin="PORTTI_PROMPTI_$(python -I -c 'import secrets; print(secrets.token_hex(16))')"
+          {
+            echo "prompti<<$erotin"
+            cat "$tulosteet/prompti.md"
+            echo "$erotin"
+            echo "tyokalut=$(cat "$tulosteet/tyokalut.txt")"
+            echo "kielletyt=$(cat "$tulosteet/kielletyt.txt")"
+            echo "agentit=$(cat "$tulosteet/agentit.json")"
+            echo "asetukset=$(cat "$tulosteet/asetukset.json")"
+          } >> "$GITHUB_OUTPUT"
+          # Kommenttien raakadata ja portin kopio pois ennen agenttia: agentti ei lue niitä eikä vie niitä committiin.
+          rm -f "$tulosteet/kommentit.json"
+          rm -rf portti-moottori
+
+      - name: Aja agentti (claude-code-action, pinnattu)
+        id: agentti
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1.0.268
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: ${{ steps.prompti.outputs.prompti }}
+          # Ohjauksen käynnistämä korjauskierros tulee GITHUB_TOKENilla, jolloin toimija on github-actions[bot].
+          allowed_bots: github-actions
+          additional_permissions: |
+            actions: read
+          # Asetukset lukitsevat aliagenttien mallin ja ohjaavat aliakset sonnet ja haiku tarkistajan malliin.
+          settings: ${{ steps.prompti.outputs.asetukset }}
+          # Malli tulee vain portti malli -askeleesta ja budjetti sekä kierrosraja tarkistetusta syötteestä.
+          # --setting-sources user: repon omat .claude-asetukset eivät lataudu, joten sallittu työkalulista on
+          # täsmälleen tämän työnkulun lista.
+          claude_args: |
+            --model ${{ steps.portti.outputs.malli }}
+            --max-turns ${{ steps.syotteet.outputs.max_turns }}
+            --max-budget-usd ${{ steps.syotteet.outputs.budjetti }}
+            --setting-sources user
+            --agents '${{ steps.prompti.outputs.agentit }}'
+            --allowedTools "${{ steps.prompti.outputs.tyokalut }}"
+            --disallowedTools "${{ steps.prompti.outputs.kielletyt }}"
+
+      # Tästä eteenpäin runneria ei pidetä luotettavana: agentin ajama koodi on voinut muuttaa ympäristöä.
+      # Askeleille ei anneta tokeneita. Tarkistukset tehdään jobissa jalkitarkistus puhtaalla runnerilla.
+      - name: Poimi ajon tulos suoritustiedostosta (ei tokeneita)
+        if: always() && steps.prompti.outcome == 'success'
+        env:
+          SUORITUS: ${{ steps.agentti.outputs.execution_file }}
+        run: |
+          # Koko suoritustiedostoa ei tallenneta: siinä on agentin keskustelu ja työkalujen tulosteet.
+          # Jälkitarkistus tarvitsee vain tulosviestin luvut ja mallikohtaisen käytön.
+          kohde="$RUNNER_TEMP/kortti-ajon-tulos.json"
+          jq -c '[.[] | select(type == "object" and .type == "result")] | last
+                 | if . == null then [] else [{type, duration_ms, num_turns, total_cost_usd, modelUsage, usage}] end' \
+            "${SUORITUS:-$RUNNER_TEMP/claude-execution-output.json}" > "$kohde" || echo "[]" > "$kohde"
+
+      - name: Tallenna ajon tulos artefaktiksi jälkitarkistusta varten
+        if: always() && steps.prompti.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kortti-ajon-tulos
+          path: ${{ runner.temp }}/kortti-ajon-tulos.json
+          overwrite: true
+          retention-days: 7
+
+  jalkitarkistus:
+    name: Jälkitarkistus
+    needs: kortti-ajo
+    # Ajetaan myös, kun agentin job epäonnistui tai peruttiin: tulokseton korjauskierros ei jää ilman ihmistä.
+    if: always()
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read # ajon tulosartefaktin luku
+    # Paikallinen polku: kutsuttu työnkulku tulee samasta commitista kuin tämä työnkulku.
+    uses: ./.github/workflows/kortti-ajo-jalkitarkistus.yml
+    with:
+      kortti: ${{ inputs.kortti }}
+      korjaa_pr: ${{ inputs.korjaa_pr }}
+      python_versio: ${{ inputs.python_versio }}
+      ajon_tulos: ${{ needs.kortti-ajo.result }}
+      agentti: ${{ needs.kortti-ajo.outputs.agentti }}
+      lopputulos: ${{ needs.kortti-ajo.outputs.lopputulos }}
+      malli: ${{ needs.kortti-ajo.outputs.malli }}
+      nimi: ${{ needs.kortti-ajo.outputs.nimi }}
+      lahde: ${{ needs.kortti-ajo.outputs.lahde }}
+      sallitut: ${{ needs.kortti-ajo.outputs.sallitut }}
+      vahti_sha: ${{ needs.kortti-ajo.outputs.vahti_sha }}

@@ -1,6 +1,11 @@
 # Portti-repon oma policy. Täydentää defaults/policy.yml:ää.
 alueen_maaritys:
   prefiksit: []
+deny:
+  kova:
+    mallipaatos:
+      polut: ["portti/malli.py"]
+      perustelu: "Mallipäätös 6.11.2026: sallitut mallit muuttuvat vain CTO:n päätöksellä."
 invarianttitestit:
   - tests/test_verdict.py
   - tests/test_policy.py

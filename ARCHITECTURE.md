@@ -26,10 +26,65 @@ pinnatulla sha:lla.
 | `portti/arviointi.py` | yhden arvioinnin kokoaminen: luokitus, verdict ja evidence samasta syötteestä (`arvioi`) |
 | `portti/cli.py` | komentorivin jäsennin ja ohjaus |
 | `portti/cli_komennot.py` | komentojen toteutukset: `arvioi`, `kommentti`, `esto`, `tarkista-tapaukset`, `shadow-raportti` |
+| `portti/ohjaus.py` | ohjauksen päätöstaulu (rivit a–e), fail-closed, jo käynnistetty kierros edellisestä päätöksestä, päätös-JSON ja päätös keskeytyneelle kortti-ajolle; ei verkkoa |
+| `portti/ohjaus_kommentti.py` | ohjauskommentin renderöinti ja konedata (oma tunniste ja oma kirjoittaja; rikkinäinen konedata merkitään kelvottomaksi) |
+| `portti/ohjaus_toteutus.py` | edellisen päätöksen luku ohjauksen omasta kommentista; päätöksen soveltaminen: labelit, kortti-ajon käynnistys, katselmoijapyyntö varavalintoineen, kommentti; käynnistyksen ja pyynnön virhepolut |
+| `portti/cli_ohjaus.py` | komennot `ohjaus-edellinen`, `ohjaa`, `ohjaus-toteuta` ja `ohjaus-ajo-paattyi` |
+| `portti/kortti.py` | kortin metarivien luku (`- Tila:`, `- Malli:`) raakatekstistä kortin alkuosasta, rungon avainrivien arvot, kortin haaran slug (`feature/<slug>`) |
+| `portti/malli.py` | mallipäätös 6.11.2026 funktiona: sallitut mallit yhdessä vakiossa, valinta ja sen lähde |
+| `portti/cli_malli.py` | komennot `malli` ja `kortin-tila` |
 
-Riippuvuussuunta: `cli` → `cli_komennot` → (`arviointi`, `kommentti`, `shadow`,
-`shadow_muotoilu`, `tapaukset`, `policy_lahde`) → (`policy`, `git_diff`, `invariantit`,
-`github_api`) → (`paallekkaisyys`, `polkumallit`). Alemmat eivät tunne ylempiä.
+Riippuvuussuunta: `cli` → (`cli_komennot`, `cli_ohjaus`, `cli_malli`) → (`arviointi`, `kommentti`, `shadow`,
+`shadow_muotoilu`, `tapaukset`, `policy_lahde`, `ohjaus_toteutus`) → (`policy`, `git_diff`, `invariantit`,
+`github_api`, `ohjaus_kommentti`, `ohjaus`) → (`paallekkaisyys`, `polkumallit`, `verdict`, `malli`) → `kortti`.
+`malli` ja `kortti` käyttävät vain vakiokirjastoa. Alemmat eivät tunne
+ylempiä. `ohjaus` käyttää verdictin ja tierin vakioita, mutta ei laske mitään diffistä: se lukee evidencen
+sanakirjana, saa kaiken syötteenä ja on puhdas funktio.
+
+## Ohjaus
+
+Ohjaus on moottorin osa ja deterministinen: `portti ohjaa` ei käytä verkkoa eikä kielimallia. Syötteet ovat
+evidence (tai tieto sen puuttumisesta), testityönkulun lopputulos PR:n headille, muuttuneet polut, PR:n labelit,
+forkkitieto ja edellinen päätös; tuloste on järjestetty päätös-JSON ilman tunnuksia. Idempotenssi on moottorissa:
+`ohjaus-edellinen` lukee edellisen päätöksen ohjauskommentin konedatasta (head, toimenpide, kierros), ja jos se
+käynnisti korjauskierroksen tälle samalle headille, `ohjaa` toistaa kierroksen käynnistämättä uutta
+(`kaynnista_kortti_ajo`). Ohjauskommentiksi kelpaa vain ohjauksen oman kirjoittajan kommentti; jos sen konedataa
+ei voi lukea, korjauskierrosta odottava PR menee CTO:lle. Toteutus (`ohjaus-toteuta`) on erillinen askel, joka
+puhuu GitHubille `GitHubApi`n kautta ja käynnistää kortti-ajon vain, kun päätös sanoo niin. Uusi korjauskierros
+vaatii kortin slugin (PR:n haara `feature/<slug>`) ja alkuperäisen ajon mallin (label `malli-<nimi>`); puuttuva
+tieto vie PR:n CTO:lle. Korjauskierros ei jää ilman ihmistä: jos kortti-ajoa ei saada käyntiin, toteutus soveltaa
+moottorin päätöksen keskeytyneelle ajolle (CTO, label `jumissa`), ja kortti-ajon jälkitarkistus tekee saman
+komennolla `ohjaus-ajo-paattyi`, kun PR odottaa ajon jälkeen yhä samaa kierrosta samalla headilla. Päätös
+pysäyttää kierrokset sille headille (`kierrokset_pysaytetty` konedatassa). Uudessa korjauskierroksessa kommentti
+kirjoitetaan ennen käynnistystä, koska kortti-ajo lukee siitä ohjauksen ohjeen; käynnistys on kaksivaiheinen
+(`kaynnistys_kesken`), joten vahvistamatonta käynnistystä ei pidetä käynnissä olevana kierroksena.
+
+## Mallin valinta
+
+CTO:n mallipäätös 6.11.2026 on `portti/malli.py`:n puhdas funktio: syötteinä kortin teksti, käsin valittu arvo ja
+korjauskierroksen alkuperäinen malli, tuloksena mallitunniste ja sen lähde tai virhe. Sallitut nimet ja tunnisteet
+ovat yhdessä vakiossa, ja tiedoston muutos on portin omassa policyssä kova. Moottori ei kutsu mallia: se vain
+päättää, mikä malli kortti-ajolle annetaan. Ohjaus käyttää samaa vakiota labelin `malli-<nimi>` tarkistukseen.
+Katselmoijien tunnukset tulevat parametreina kuluttajarepon muuttujista; moottori ei tunne niitä.
+Työnkulku `.github/workflows/ohjaus.yml` ajetaan kuluttajan oletushaarasta (`workflow_run`), ei hae PR:n koodia
+ja hakee moottorin pinnatusta shasta.
+
+## Kortti-ajo on erillinen komponentti
+
+`.github/workflows/kortti-ajo.yml`, `.github/workflows/kortti-ajo-jalkitarkistus.yml`, `ajo/prompti.md`,
+`ajo/kokoa_prompti.py` ja `ajo/ajon_yhteenveto.py` muodostavat kortti-ajon, joka käyttää kielimallia (claude-code-action) kuluttajarepossa. Moottori (`portti/`) ei
+tuo mitään kortti-ajosta eivätkä kortti-ajon skriptit tuo moottoria: kokoaja ja yhteenveto ovat vakiokirjaston
+skriptejä, joita ajetaan `python -I`. Työnkulussa on kaksi jobia. Ensimmäinen kutsuu moottoria komentoina
+ennen kielimallia (`portti kortin-tila`, `portti malli`), antaa agentille mallin vain `portti malli` -askeleen
+tulosteesta ja ajaa agentin; agentin jälkeen siinä on vain askeleita ilman tokeneita. Toinen, jälkitarkistus
+(oma tiedostonsa, kutsutaan paikallisella polulla samasta shasta), ajetaan puhtaalla runnerilla, koska agentti on
+voinut ajaa ensimmäisen jobin runnerilla mitä tahansa koodia: se lukee PR:n tilan GitHubin API:sta, ajaa
+yhteenvedon ja main-vahdin ja kutsuu korjauskierroksen jälkeen moottorin komentoa `portti ohjaus-ajo-paattyi`,
+joka päättää PR:n tilasta, jäikö kierros tuloksetta. Ajon tulos (mallit, kesto, kulu) kulkee
+jobien välillä artefaktina ja on dataa agentin runnerilta.
+Kortti-ajon tuotos on PR, jonka Portti ja ohjaus arvioivat kuten minkä tahansa PR:n. Riippuvuussuunta: kortti-ajo
+→ (prompti, kokoaja, yhteenveto) ja kortti-ajo → moottorin komennot; ohjaus → kortti-ajo vain
+`workflow_dispatch`-kutsuna, ei koodiriippuvuutena.
 
 ## Evidence-lähde shadow-raportille
 
@@ -65,7 +120,9 @@ protectionia, koska Free-tason yksityisrepossa niitä ei ole.
 Ei globaalia tilaa. Kaikki funktiot saavat riippuvuutensa parametreina
 (repo-polku, policy, `GitHubApi`). Policyn virheet nostavat `PolicyVirhe`-poikkeuksen
 latauksessa; git- ja gh-virheet nousevat `subprocess.CalledProcessError`-poikkeuksena
-ja kaatavat ajon näkyvästi. Mitään ei nielaista.
+ja kaatavat ajon näkyvästi. Poikkeus on ohjauksen toteutus: kortti-ajon käynnistyksen ja katselmoijapyynnön
+gh-virhe käsitellään (PR CTO:lle tai seuraava ehdokas), kirjataan ohjauskommenttiin ja palautetaan kutsujalle
+virheenä, jolloin komento palauttaa 1. Mitään ei nielaista.
 
 ## Nimeäminen
 

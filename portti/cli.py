@@ -1,4 +1,8 @@
-"""Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti. Toteutukset cli_komennot.py:ssä."""
+"""Komentorivi: arvioi, kommentti, esto, tarkista-tapaukset, shadow-raportti, ohjaus-edellinen, ohjaa,
+ohjaus-toteuta, ohjaus-ajo-paattyi, malli, kortin-tila.
+
+Toteutukset ovat cli_komennot.py:ssä, cli_ohjaus.py:ssä ja cli_malli.py:ssä.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,16 @@ import sys
 from pathlib import Path
 
 from portti.cli_komennot import komento_arvioi, komento_esto, komento_kommentti, komento_shadow, komento_tapaukset
+from portti.cli_malli import komento_kortin_tila, komento_malli, lisaa_malli_komennot
+from portti.cli_ohjaus import (
+    komento_ohjaa,
+    komento_ohjaus_ajo_paattyi,
+    komento_ohjaus_edellinen,
+    komento_ohjaus_toteuta,
+    lisaa_ohjaus_komennot,
+)
 from portti.github_api import GitHubApi
+from portti.kommentti import TYONKULUN_KOMMENTOIJA
 from portti.policy_lahde import LAHTEET, TILAT
 from portti.version import VERSIO
 
@@ -35,6 +48,8 @@ def _lisaa_kommentti(alikomennot: argparse._SubParsersAction) -> None:  # type: 
     komento.add_argument("--repo", required=True)
     komento.add_argument("--pr", type=int, required=True)
     komento.add_argument("--artefakti-url", default=None)
+    komento.add_argument("--kommentoija", default=TYONKULUN_KOMMENTOIJA,
+                         help="tunnus, jonka kirjoittamaa portin kommenttia päivitetään; muiden kommentit ohitetaan")
 
 
 def _lisaa_esto(alikomennot: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
@@ -68,6 +83,8 @@ def rakenna_jasennin() -> argparse.ArgumentParser:
     _lisaa_esto(alikomennot)
     _lisaa_tapaukset(alikomennot)
     _lisaa_shadow(alikomennot)
+    lisaa_ohjaus_komennot(alikomennot)
+    lisaa_malli_komennot(alikomennot)
     return jasennin
 
 
@@ -82,6 +99,18 @@ def main(argv: list[str] | None = None, api: GitHubApi | None = None) -> int:
         return komento_esto(argumentit)
     if argumentit.komento == "tarkista-tapaukset":
         return komento_tapaukset(argumentit)
+    if argumentit.komento == "ohjaus-edellinen":
+        return komento_ohjaus_edellinen(argumentit, api)
+    if argumentit.komento == "ohjaa":
+        return komento_ohjaa(argumentit)
+    if argumentit.komento == "ohjaus-toteuta":
+        return komento_ohjaus_toteuta(argumentit, api)
+    if argumentit.komento == "ohjaus-ajo-paattyi":
+        return komento_ohjaus_ajo_paattyi(argumentit, api)
+    if argumentit.komento == "malli":
+        return komento_malli(argumentit)
+    if argumentit.komento == "kortin-tila":
+        return komento_kortin_tila(argumentit)
     return komento_shadow(argumentit, api)
 
 

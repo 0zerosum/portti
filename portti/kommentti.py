@@ -8,6 +8,7 @@ from typing import Any
 from portti.github_api import GitHubApi
 
 TUNNISTE_ALKU = "<!-- portti-kommentti v1"
+TYONKULUN_KOMMENTOIJA = "github-actions[bot]"
 KONEDATA_ALKU = "<!-- portti "
 KONEDATA_LOPPU = " -->"
 
@@ -36,13 +37,19 @@ def konedata(evidence: dict[str, Any]) -> dict[str, Any]:
 
 
 def lue_konedata(kommentin_teksti: str) -> dict[str, Any] | None:
-    """Palauttaa kommenttiin upotetun konedatan tai None, jos kommentti ei ole portin."""
+    """Palauttaa kommenttiin upotetun konedatan tai None, jos kommentti ei ole portin.
+
+    Kommentti, jossa on portin tunniste mutta jonka konedata ei jäsenny, ei ole portin kirjoittama: se ohitetaan,
+    jotta yksi vieras kommentti ei kaada raporttia.
+    """
     if not kommentin_teksti.startswith(TUNNISTE_ALKU):
         return None
     for rivi in kommentin_teksti.splitlines():
         if rivi.startswith(KONEDATA_ALKU) and rivi.endswith(KONEDATA_LOPPU):
-            sisalto = rivi[len(KONEDATA_ALKU):-len(KONEDATA_LOPPU)]
-            tulos = json.loads(sisalto)
+            try:
+                tulos = json.loads(rivi[len(KONEDATA_ALKU):-len(KONEDATA_LOPPU)])
+            except json.JSONDecodeError:
+                return None
             return tulos if isinstance(tulos, dict) else None
     return None
 
@@ -91,11 +98,22 @@ def renderoi(evidence: dict[str, Any], artefakti_url: str | None) -> str:
     return "\n".join(rivit) + "\n"
 
 
-def kirjoita_tai_paivita(api: GitHubApi, repo: str, pr_numero: int, teksti: str) -> str:
-    """Luo portin kommentin tai päivittää saman tilan olemassa olevan. Palauttaa tehdyn toimen."""
+def kommentin_kirjoittaja(kommentti: dict[str, Any]) -> str:
+    """Kirjoittajan tunnus GitHubin API:n kommenttioliosta; tyhjä, jos tietoa ei ole."""
+    kayttaja = kommentti.get("user")
+    return str(kayttaja.get("login", "")) if isinstance(kayttaja, dict) else ""
+
+
+def kirjoita_tai_paivita(api: GitHubApi, repo: str, pr_numero: int, teksti: str, kirjoittaja: str | None = None) -> str:
+    """Luo portin kommentin tai päivittää saman tilan olemassa olevan. Palauttaa tehdyn toimen.
+
+    Kun `kirjoittaja` on annettu, päivitetään vain sen kirjoittamaa kommenttia: toisen käyttäjän kommentti,
+    jossa on sama tunniste, ohitetaan ja oma kommentti luodaan sen rinnalle.
+    """
     oma_tunniste = teksti.splitlines()[0]
     omat = [kommentti for kommentti in api.hae_kommentit(repo, pr_numero)
-            if str(kommentti.get("body", "")).splitlines()[:1] == [oma_tunniste]]
+            if str(kommentti.get("body", "")).splitlines()[:1] == [oma_tunniste]
+            and (kirjoittaja is None or kommentin_kirjoittaja(kommentti) == kirjoittaja)]
     if not omat:
         api.luo_kommentti(repo, pr_numero, teksti)
         return "luotu"

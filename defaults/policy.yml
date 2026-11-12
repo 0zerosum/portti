@@ -38,8 +38,13 @@ deny:
     kontit:
       polut: ["Dockerfile*", "docker-compose*"]
     portti_itse:
-      polut: [".portti/**", "CODEOWNERS", ".github/workflows/portti.yml"]
-      perustelu: "Portti ei saa muuttaa omia sääntöjään automaattisesti."
+      polut:
+        - ".portti/**"
+        - "CODEOWNERS"
+        - ".github/workflows/portti.yml"
+        - ".github/workflows/portti-ohjaus.yml"
+        - ".github/workflows/kortti-ajo.yml"
+      perustelu: "Portti ei saa muuttaa omia sääntöjään, ohjaustaan eikä kortti-ajoaan automaattisesti."
   pehmea: {}
 
 # Deny, jos PR lisää tällaisen polun (uusi tiedosto tai uudelleennimeämisen kohde).

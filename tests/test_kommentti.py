@@ -82,6 +82,20 @@ def test_sama_teksti_ei_aiheuta_kutsua() -> None:
     assert len(vale.kutsut) == 1
 
 
+def test_vieraan_kommenttia_ei_paiviteta_kun_kirjoittaja_on_annettu() -> None:
+    """Kuka tahansa voi kirjoittaa kommentin, jossa on portin tunniste: portti päivittää vain omaansa."""
+    botti = "github-actions[bot]"
+    vieras = ValeGh({"issues/5/comments": [[{"id": 1, "body": TUNNISTE + "\nvieras", "user": {"login": "keksitty-kommentoija"}}]]})
+    assert kirjoita_tai_paivita(vieras.api(), "omistaja/repo", 5, TUNNISTE + "\nuusi", botti) == "luotu"
+    oma = ValeGh({"issues/5/comments": [[{"id": 2, "body": TUNNISTE + "\nvanha", "user": {"login": botti}}]]})
+    assert kirjoita_tai_paivita(oma.api(), "omistaja/repo", 5, TUNNISTE + "\nuusi", botti) == "päivitetty"
+
+
+def test_rikkinainen_konedata_ohitetaan_eika_kaada_lukua() -> None:
+    assert lue_konedata(f"{TUNNISTE}\n<!-- portti {{rikki -->\n") is None
+    assert lue_konedata(f"{TUNNISTE}\n<!-- portti [1] -->\n") is None
+
+
 def test_enforce_kommentti_on_oma_ja_merkitty() -> None:
     enforce = evidence("KOVA") | {"tila": "enforce", "policy_lahde": "base"}
     teksti = renderoi(enforce, None)
